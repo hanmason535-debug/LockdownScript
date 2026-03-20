@@ -96,8 +96,8 @@ To use a different learning duration (default is 3 hours / 180 minutes):
 # 4-hour learning window
 .\AutoLockdown.ps1 -Initialize -LearningWindowMinutes 240
 
-# 1-hour learning window
-.\AutoLockdown.ps1 -Initialize -LearningWindowMinutes 60
+# 5-minute learning window
+.\AutoLockdown.ps1 -Initialize -LearningWindowMinutes 5
 ```
 
 #### Dry Run (Preview)
@@ -135,7 +135,11 @@ Failures: 0
 ### Extending Learning
 If you need more time after initialization:
 ```powershell
+# Extend by 60 minutes (default)
 .\AutoLockdown.ps1 -ExtendLearning
+
+# Extend by a custom duration
+.\AutoLockdown.ps1 -ExtendLearning -ExtendMinutes 90
 ```
 
 ### Manually Adding a Device After Deployment
@@ -191,7 +195,8 @@ Shows a full GUI dashboard with USB device details, network status, and mode inf
 | `-DeviceName` | String | `"Manually Added"` | Friendly name for manually added device |
 | `-ShowStatus` | Switch | — | Show security status GUI dashboard |
 | `-Silent` | Switch | — | Suppress console output |
-| `-LearningWindowMinutes` | Int | `180` | Learning window duration in minutes |
+| `-LearningWindowMinutes` | Int | `180` | Learning window duration in minutes (used with `-Initialize`) |
+| `-ExtendMinutes` | Int | `60` | Duration in minutes when extending learning (used with `-ExtendLearning`) |
 | `-RebootDelaySeconds` | Int | `60` | Delay before reboot prompt (seconds) |
 | `-EnableWatchdog` | Switch | — | Enable watchdog timer for monitor self-healing |
 | `-EnableHealthCheck` | Switch | — | Enable health check HTTP endpoint |
@@ -246,7 +251,7 @@ AutoLockdown creates **9 files** in `C:\ProgramData\AutoLockdown\`:
 | `AutoLockdown.ps1` | Deployed copy of the main script | No |
 | `Security.log` | Event and action logging (blocks, learns, errors) | No |
 | `USB_Whitelist.json` | Whitelisted USB devices | No |
-| `Network_Whitelist.json` | Whitelisted network adapters | ✅ DPAPI |
+| `Network_Whitelist.json` | Whitelisted network adapters | No |
 | `ThreatDB.json` | Known attack device signatures | No |
 | `Learning_State.json` | Current mode and learning window expiry | ✅ DPAPI |
 | `Deployment_Meta.json` | Deployment timestamp and machine info | No |
