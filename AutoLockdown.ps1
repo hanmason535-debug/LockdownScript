@@ -72,7 +72,8 @@ param(
     [int]$RebootDelaySeconds = 60,
     [switch]$EnableWatchdog,
     [switch]$EnableHealthCheck,
-    [int]$HealthCheckPort = 8765
+    [int]$HealthCheckPort = 8765,
+    [int]$ExtendMinutes = 60
 )
 
 # ============================================================================
@@ -353,9 +354,9 @@ function Test-SafeMode {
         $safeMode = (Get-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Control\SafeBoot\Option" -ErrorAction SilentlyContinue).OptionValue
         if ($safeMode -eq 1) { return "Safe Mode" }
         elseif ($safeMode -eq 2) { return "Safe Mode with Networking" }
-        return $false
+        return $null
     }
-    catch { return $false }
+    catch { return $null }
 }
 
 function Test-DiskSpace {
@@ -659,11 +660,11 @@ function Show-TimerForm {
             $state.Remaining--
         
             $elapsed = $state.TotalSeconds - $state.Remaining
-            if ($elapsed -le $state.ProgressBar.Maximum) {
-                $state.ProgressBar.Value = $elapsed
-            }
+            # Clamp value to valid range to prevent ArgumentOutOfRangeException after extend
+            $clampedElapsed = [Math]::Max(0, [Math]::Min($elapsed, $state.ProgressBar.Maximum))
+            $state.ProgressBar.Value = $clampedElapsed
         
-            $ts = [TimeSpan]::FromSeconds($state.Remaining)
+            $ts = [TimeSpan]::FromSeconds([Math]::Max(0, $state.Remaining))
             $state.TimeLabel.Text = "Time Remaining: $($ts.ToString('hh\:mm\:ss'))"
         
             if ($state.Remaining -le 0) {
@@ -767,7 +768,7 @@ function Show-StatusDashboard {
     $lblTitle = New-Object System.Windows.Forms.Label
     $lblTitle.Location = New-Object System.Drawing.Point(15, 10)
     $lblTitle.Size = New-Object System.Drawing.Size(550, 32)
-    $lblTitle.Text = "🛡️ AutoLockdown Security Dashboard"
+    $lblTitle.Text = "AutoLockdown Security Dashboard"
     $lblTitle.Font = New-Object System.Drawing.Font("Segoe UI", 17, [System.Drawing.FontStyle]::Bold)
     $lblTitle.ForeColor = $colorText
     $form.Controls.Add($lblTitle)
@@ -789,7 +790,7 @@ function Show-StatusDashboard {
     $form.Controls.Add($pnlMode)
     
     $modeColor = if ($mode -eq "Enforced") { $colorOK } elseif ($mode -eq "Learning") { $colorWarn } else { $colorDim }
-    $modeIcon = if ($mode -eq "Enforced") { "🔒" } elseif ($mode -eq "Learning") { "📝" } else { "❓" }
+    $modeIcon = if ($mode -eq "Enforced") { "[LOCK]" } elseif ($mode -eq "Learning") { "[MEMO]" } else { "[?]" }
     
     $lblModeIcon = New-Object System.Windows.Forms.Label
     $lblModeIcon.Location = New-Object System.Drawing.Point(15, 12)
@@ -812,9 +813,9 @@ function Show-StatusDashboard {
         $expires = [DateTime]::Parse($learningState.Expires)
         if ($learningState.ExpiresUTC) { $expires = $expires.ToLocalTime() }
         $remaining = $expires - (Get-Date)
-        if ($remaining.TotalSeconds -gt 0) { "⏱️ Expires in: $($remaining.ToString('hh\:mm\:ss'))" } else { "⏱️ Expired - Pending enforcement" }
+        if ($remaining.TotalSeconds -gt 0) { "Expires in: $($remaining.ToString('hh\:mm\:ss'))" } else { "Expired - Pending enforcement" }
     }
-    else { "🔐 All non-whitelisted USB blocked (except HID)" }
+    else { "All non-whitelisted USB blocked (except HID)" }
     
     $lblPolicy = New-Object System.Windows.Forms.Label
     $lblPolicy.Location = New-Object System.Drawing.Point(280, 15)
@@ -864,74 +865,74 @@ function Show-StatusDashboard {
     $addSep = { $script:yPos += 8 }
     
     # ===== USB PORTS SECTION =====
-    & $addHeader "USB PORTS & CONTROLLERS" "⚡"
+    & $addHeader "USB PORTS & CONTROLLERS" "[!]"
     
     # USB 3.2
     if ($usb32Controllers) {
-        & $addItem "┌─ USB 3.2 (SuperSpeed+ 20Gbps)" $colorInfo
+        & $addItem "+-- USB 3.2 (SuperSpeed+ 20Gbps)" $colorInfo
         foreach ($c in $usb32Controllers) {
-            $st = if ($c.Status -eq "OK") { "✓" } else { "✗" }
+            $st = if ($c.Status -eq "OK") { "[OK]" } else { "[X]" }
             $cl = if ($c.Status -eq "OK") { $colorOK } else { $colorBlocked }
-            & $addItem "│  $st $($c.FriendlyName)" $cl 28
+            & $addItem "|  $st $($c.FriendlyName)" $cl 28
         }
     }
     
     # USB 3.1
     if ($usb31Controllers) {
-        & $addItem "├─ USB 3.1 (SuperSpeed+ 10Gbps)" $colorInfo
+        & $addItem "+-- USB 3.1 (SuperSpeed+ 10Gbps)" $colorInfo
         foreach ($c in $usb31Controllers) {
-            $st = if ($c.Status -eq "OK") { "✓" } else { "✗" }
+            $st = if ($c.Status -eq "OK") { "[OK]" } else { "[X]" }
             $cl = if ($c.Status -eq "OK") { $colorOK } else { $colorBlocked }
-            & $addItem "│  $st $($c.FriendlyName)" $cl 28
+            & $addItem "|  $st $($c.FriendlyName)" $cl 28
         }
     }
     
     # USB 3.0
     if ($usb30Controllers) {
-        & $addItem "├─ USB 3.0 (SuperSpeed 5Gbps)" $colorInfo
+        & $addItem "+-- USB 3.0 (SuperSpeed 5Gbps)" $colorInfo
         foreach ($c in $usb30Controllers) {
-            $st = if ($c.Status -eq "OK") { "✓" } else { "✗" }
+            $st = if ($c.Status -eq "OK") { "[OK]" } else { "[X]" }
             $cl = if ($c.Status -eq "OK") { $colorOK } else { $colorBlocked }
-            & $addItem "│  $st $($c.FriendlyName)" $cl 28
+            & $addItem "|  $st $($c.FriendlyName)" $cl 28
         }
     }
     
     # USB 2.0
     if ($usb20Controllers) {
-        & $addItem "├─ USB 2.0 (Hi-Speed 480Mbps)" $colorInfo
+        & $addItem "+-- USB 2.0 (Hi-Speed 480Mbps)" $colorInfo
         foreach ($c in $usb20Controllers) {
-            $st = if ($c.Status -eq "OK") { "✓" } else { "✗" }
+            $st = if ($c.Status -eq "OK") { "[OK]" } else { "[X]" }
             $cl = if ($c.Status -eq "OK") { $colorOK } else { $colorBlocked }
-            & $addItem "│  $st $($c.FriendlyName)" $cl 28
+            & $addItem "|  $st $($c.FriendlyName)" $cl 28
         }
     }
     
     # USB 1.1
     if ($usb11Controllers) {
-        & $addItem "├─ USB 1.1 (Full-Speed 12Mbps)" $colorDim
+        & $addItem "+-- USB 1.1 (Full-Speed 12Mbps)" $colorDim
         foreach ($c in $usb11Controllers) {
-            $st = if ($c.Status -eq "OK") { "✓" } else { "✗" }
+            $st = if ($c.Status -eq "OK") { "[OK]" } else { "[X]" }
             $cl = if ($c.Status -eq "OK") { $colorDim } else { $colorBlocked }
-            & $addItem "│  $st $($c.FriendlyName)" $cl 28
+            & $addItem "|  $st $($c.FriendlyName)" $cl 28
         }
     }
     
     # Thunderbolt
     if ($thunderboltCtrl) {
-        & $addItem "├─ Thunderbolt (40Gbps)" $colorInfo
+        & $addItem "+-- Thunderbolt (40Gbps)" $colorInfo
         foreach ($c in $thunderboltCtrl) {
-            & $addItem "│  ✓ $($c.FriendlyName)" $colorOK 28
+            & $addItem "|  [OK] $($c.FriendlyName)" $colorOK 28
         }
     }
     
     # Root Hubs & Hubs
     $hubCount = ($rootHubs | Measure-Object).Count + ($usbHubs | Measure-Object).Count
-    & $addItem "└─ USB Hubs: $hubCount active (Root + External)" $colorDim
+    & $addItem "+-- USB Hubs: $hubCount active (Root + External)" $colorDim
     
     & $addSep
     
     # ===== USB DEVICES SECTION =====
-    & $addHeader "USB DEVICES" "🔌"
+    & $addHeader "USB DEVICES" "[PLUG]"
     
     # Categorize devices
     $learnedDevs = @()
@@ -967,43 +968,43 @@ function Show-StatusDashboard {
         }
     }
     
-    & $addItem "╔══════════════════════════════════════════════════════════════════════════════════╗" $colorDim 18
-    & $addItem "║ 📗 Learned: $($learnedDevs.Count)  🏗️ Infra: $($infraDevs.Count)  🖱️ HID: $($hidDevs.Count)  🚫 Blocked: $($blockedDevs.Count)  ⚙️ Sys: $($systemDevs.Count)" $colorText 18
-    & $addItem "╚══════════════════════════════════════════════════════════════════════════════════╝" $colorDim 18
+    & $addItem "+==============================================================================+" $colorDim 18
+    & $addItem "| Learned: $($learnedDevs.Count)  Infra: $($infraDevs.Count)  HID: $($hidDevs.Count)  Blocked: $($blockedDevs.Count)  Sys: $($systemDevs.Count)" $colorText 18
+    & $addItem "+==============================================================================+" $colorDim 18
     
     # Infrastructure devices (FTDI relay, JAC 5G dongle)
     if ($infraDevs.Count -gt 0) {
-        & $addItem "🏗️ INFRASTRUCTURE (Always Allowed - Relay/5G):" $colorInfo
+        & $addItem "[INFRA] INFRASTRUCTURE (Always Allowed - Relay/5G):" $colorInfo
         foreach ($d in $infraDevs) {
             $name = if ($d.FriendlyName.Length -gt 50) { $d.FriendlyName.Substring(0, 47) + "..." } else { $d.FriendlyName }
-            & $addItem "   ⚡ $name" $colorInfo 28
+            & $addItem "   [!] $name" $colorInfo 28
         }
     }
     
     # Learned devices
     if ($learnedDevs.Count -gt 0) {
-        & $addItem "📗 LEARNED DEVICES (Permanently Allowed):" $colorOK
+        & $addItem "[LEARN] LEARNED DEVICES (Permanently Allowed):" $colorOK
         foreach ($d in $learnedDevs) {
             $name = if ($d.FriendlyName.Length -gt 50) { $d.FriendlyName.Substring(0, 47) + "..." } else { $d.FriendlyName }
-            & $addItem "   ✓ $name" $colorOK 28
+            & $addItem "   [OK] $name" $colorOK 28
         }
     }
     
     # HID devices
     if ($hidDevs.Count -gt 0) {
-        & $addItem "🖱️ HID DEVICES (Always Allowed - Keyboard/Mouse):" $colorHID
+        & $addItem "[HID] HID DEVICES (Always Allowed - Keyboard/Mouse):" $colorHID
         foreach ($d in $hidDevs) {
             $name = if ($d.FriendlyName.Length -gt 50) { $d.FriendlyName.Substring(0, 47) + "..." } else { $d.FriendlyName }
-            & $addItem "   ⌨️ $name" $colorHID 28
+            & $addItem "   [KB] $name" $colorHID 28
         }
     }
     
     # Blocked devices
     if ($blockedDevs.Count -gt 0) {
-        & $addItem "🚫 BLOCKED DEVICES (Denied Access):" $colorBlocked
+        & $addItem "[BLOCK] BLOCKED DEVICES (Denied Access):" $colorBlocked
         foreach ($d in $blockedDevs) {
             $name = if ($d.FriendlyName.Length -gt 50) { $d.FriendlyName.Substring(0, 47) + "..." } else { $d.FriendlyName }
-            & $addItem "   ✗ $name" $colorBlocked 28
+            & $addItem "   [X] $name" $colorBlocked 28
         }
     }
     
@@ -1014,38 +1015,38 @@ function Show-StatusDashboard {
     & $addSep
     
     # ===== NETWORK SECURITY =====
-    & $addHeader "NETWORK SECURITY" "📡"
+    & $addHeader "NETWORK SECURITY" "[NET]"
     
     # WiFi
     foreach ($a in $wifiAdapters) {
         $bl = $a.Status -eq "Disabled"
-        $ic = if ($bl) { "❌" } else { "✅" }
+        $ic = if ($bl) { "[X]" } else { "[OK]" }
         $tx = if ($bl) { "BLOCKED" } else { "ACTIVE" }
         $cl = if ($bl) { $colorBlocked } else { $colorOK }
-        & $addItem "$ic  📶 WiFi: $($a.Name) [$tx]" $cl
+        & $addItem "$ic  WiFi: $($a.Name) [$tx]" $cl
     }
     
     # Ethernet
     foreach ($a in $ethAdapters) {
         $bl = $a.Status -eq "Disabled"
-        $ic = if ($bl) { "❌" } else { "✅" }
+        $ic = if ($bl) { "[X]" } else { "[OK]" }
         $tx = if ($bl) { "BLOCKED" } else { "ACTIVE" }
         $cl = if ($bl) { $colorBlocked } else { $colorOK }
-        & $addItem "$ic  🔌 Ethernet: $($a.Name) [$tx]" $cl
+        & $addItem "$ic  Ethernet: $($a.Name) [$tx]" $cl
     }
     
     # Bluetooth
     foreach ($a in $btAdapters) {
         $bl = $a.Status -eq "Disabled"
-        $ic = if ($bl) { "❌" } else { "✅" }
+        $ic = if ($bl) { "[X]" } else { "[OK]" }
         $tx = if ($bl) { "BLOCKED" } else { "ACTIVE" }
         $cl = if ($bl) { $colorBlocked } else { $colorOK }
-        & $addItem "$ic  📡 Bluetooth: $($a.Name) [$tx]" $cl
+        & $addItem "$ic  Bluetooth: $($a.Name) [$tx]" $cl
     }
     
     # Cellular (always allowed)
     foreach ($a in $cellularAdapters) {
-        & $addItem "✅  📱 Cellular: $($a.Name) [ALLOWED - Policy Exception]" $colorOK
+        & $addItem "[OK]  Cellular: $($a.Name) [ALLOWED - Policy Exception]" $colorOK
     }
     
     if (-not $wifiAdapters -and -not $ethAdapters -and -not $btAdapters -and -not $cellularAdapters) {
@@ -1055,30 +1056,30 @@ function Show-StatusDashboard {
     & $addSep
     
     # ===== THREAT INTELLIGENCE =====
-    & $addHeader "THREAT INTELLIGENCE" "🔒"
+    & $addHeader "THREAT INTELLIGENCE" "[LOCK]"
     
     $threatCount = if ($threatSignatures -is [hashtable]) { $threatSignatures.Count } else { ($threatSignatures.PSObject.Properties | Measure-Object).Count }
-    & $addItem "🛡️  Threat Signatures Loaded: $threatCount" $colorOK
-    & $addItem "📋  Whitelisted Device IDs: $($whitelistDevices.Count)" $colorOK
-    & $addItem "🔐  HID Trusted Vendors: $($TRUSTED_HID_VENDORS.Count)" $colorInfo
-    & $addItem "⚔️  Threats Detected This Session: $($script:Metrics.ThreatsDetected)" $(if ($script:Metrics.ThreatsDetected -gt 0) { $colorBlocked } else { $colorOK })
+    & $addItem "Threat Signatures Loaded: $threatCount" $colorOK
+    & $addItem "Whitelisted Device IDs: $($whitelistDevices.Count)" $colorOK
+    & $addItem "HID Trusted Vendors: $($TRUSTED_HID_VENDORS.Count)" $colorInfo
+    & $addItem "Threats Detected This Session: $($script:Metrics.ThreatsDetected)" $(if ($script:Metrics.ThreatsDetected -gt 0) { $colorBlocked } else { $colorOK })
     
     & $addSep
     
     # ===== SYSTEM HEALTH =====
-    & $addHeader "SYSTEM HEALTH" "💻"
+    & $addHeader "SYSTEM HEALTH" "[PC]"
     
-    & $addItem "💾  Disk Space (C:): $diskFree GB free" $(if ($diskFree -lt 5) { $colorWarn } else { $colorOK })
-    & $addItem "📋  Log File Size: $logSize KB" $(if ($logSize -gt 5000) { $colorWarn } else { $colorOK })
-    $monStatus = if ($monitorRunning) { "✅ Running" } else { "⚠️ Not Running" }
+    & $addItem "Disk Space (C:): $diskFree GB free" $(if ($diskFree -lt 5) { $colorWarn } else { $colorOK })
+    & $addItem "Log File Size: $logSize KB" $(if ($logSize -gt 5000) { $colorWarn } else { $colorOK })
+    $monStatus = if ($monitorRunning) { "[OK] Running" } else { "[!!] Not Running" }
     $monColor = if ($monitorRunning) { $colorOK } else { $colorWarn }
-    & $addItem "🔄  Monitor Service: $monStatus" $monColor
+    & $addItem "Monitor Service: $monStatus" $monColor
     
     # ===== BUTTONS =====
     $btnExport = New-Object System.Windows.Forms.Button
     $btnExport.Location = New-Object System.Drawing.Point(250, 690)
     $btnExport.Size = New-Object System.Drawing.Size(130, 38)
-    $btnExport.Text = "📄 Export Report"
+    $btnExport.Text = "Export Report"
     $btnExport.BackColor = [System.Drawing.Color]::FromArgb(50, 50, 70)
     $btnExport.ForeColor = $colorText
     $btnExport.FlatStyle = "Flat"
@@ -1188,7 +1189,10 @@ function Set-DeploymentState {
 function Get-LearningState {
     $state = Import-JsonSafe -Path $LearningFile -IsEncrypted
     if ($state -and $state.ExpiresUTC) {
-        $state.Expires = ([DateTime]::Parse($state.Expires)).ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")
+        # Return a copy with local-time Expires to avoid mutating the imported object
+        $localExpires = ([DateTime]::Parse($state.Expires)).ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")
+        $state = $state.PSObject.Copy()
+        $state.Expires = $localExpires
     }
     return $state
 }
@@ -1614,10 +1618,10 @@ function Start-RealtimeMonitoring {
             }
             
             if ($whitelist -contains $vidpid) { Add-Content -Path $data.LogPath -Value "[$ts] [SUCCESS] ALLOWED $($fullDev.FriendlyName) - Whitelisted" -Force; return }
-            # Handle PSCustomObject from JSON (not hashtable)
+            # Handle PSCustomObject from JSON (not hashtable) with null-safe access
             $threatInfo = $null
             if ($threats -is [hashtable]) { if ($threats.ContainsKey($vidpid)) { $threatInfo = $threats[$vidpid] } }
-            else { $threatInfo = $threats.PSObject.Properties[$vidpid].Value }
+            else { $prop = $threats.PSObject.Properties.Match($vidpid); if ($prop.Count -gt 0) { $threatInfo = $prop[0].Value } }
             if ($threatInfo) { Add-Content -Path $data.LogPath -Value "[$ts] [BLOCK] BLOCKED $($fullDev.FriendlyName) - Threat: $($threatInfo.Name)" -Force; Disable-PnpDevice -InstanceId $deviceId -Confirm:$false -ErrorAction SilentlyContinue; return }
             
             $learningMode = "Enforced"
@@ -1647,7 +1651,10 @@ function Start-RealtimeMonitoring {
                     if ($mutex.WaitOne($data.MutexTimeout)) {
                         if ($whitelist.Count -lt $data.MaxWhitelistDevices -and $whitelist -notcontains $vidpid) {
                             $whitelist += $vidpid; $whitelist = $whitelist | Select-Object -Unique
-                            $wlData = @{ Created = if (Test-Path $data.USBWhitelistPath) { (Get-Content $data.USBWhitelistPath -Raw | ConvertFrom-Json).Created } else { (Get-Date).ToString("yyyy-MM-dd HH:mm:ss") }; Version = $data.ScriptVersion; Author = $data.ScriptAuthor; Devices = $whitelist }
+                            # Safely re-read Created timestamp (guards against future encryption changes)
+                            $existingCreated = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+                            try { if (Test-Path $data.USBWhitelistPath) { $wlRaw = Get-Content $data.USBWhitelistPath -Raw -Encoding UTF8; if ($wlRaw.Trim().StartsWith("{")) { $existingCreated = ($wlRaw | ConvertFrom-Json).Created } } } catch {}
+                            $wlData = @{ Created = $existingCreated; Version = $data.ScriptVersion; Author = $data.ScriptAuthor; Devices = $whitelist }
                             $wlData | ConvertTo-Json -Depth 3 | Out-File $data.USBWhitelistPath -Force
                             Add-Content -Path $data.LogPath -Value "[$ts] [LEARNED] LEARNED $($fullDev.FriendlyName) - $vidpid" -Force
                         }
@@ -1670,12 +1677,14 @@ function Start-RealtimeMonitoring {
         while ($true) {
             Start-Sleep -Seconds 60
             Update-LearningMode -Silent | Out-Null
+            # Periodically reload whitelist so startup-scan stays current
+            $data = Import-JsonSafe -Path $USBWhitelist
+            $script:Whitelist = if ($data) { $data.Devices } else { @() }
             if (-not (Test-DiskSpace)) { $script:ReadOnlyMode = $true }
             if (Test-Path $LockFile) {
-                $lockContent = Get-Content $LockFile -Raw
-                $lockContent = $lockContent -replace "\|LastHeartbeat:[^|]*", ""
-                $lockContent += "|LastHeartbeat:$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
-                $lockContent | Out-File $LockFile -Force
+                # Rewrite lockfile with fixed format to prevent unbounded growth
+                $heartbeat = "PID:$PID|Mode:Monitor|Started:$($script:StartTime.ToString('yyyy-MM-dd HH:mm:ss'))|Author:$ScriptAuthor|Version:$ScriptVersion|LastHeartbeat:$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+                $heartbeat | Out-File $LockFile -Force
             }
         }
     }
@@ -2082,7 +2091,7 @@ elseif ($Monitor) {
     Start-RealtimeMonitoring
 }
 elseif ($ExtendLearning) {
-    Invoke-ExtendLearning -Minutes $LearningWindowMinutes
+    Invoke-ExtendLearning -Minutes $ExtendMinutes
 }
 elseif ($AddDevice) {
     Invoke-AddDevice -VidPid $DeviceVidPid -Name $DeviceName
