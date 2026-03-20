@@ -102,15 +102,17 @@ function Write-Step {
     param([string]$Step, [string]$Status, [string]$Detail = "")
     $script:Steps++
     
-    $icon = switch ($Status) {
-        "OK" { "[OK]"; "Green" }
-        "SKIP" { "[--]"; "DarkGray" }
-        "WARN" { "[!!]"; "Yellow"; $script:Warnings++ }
-        "FAIL" { "[XX]"; "Red"; $script:Errors++ }
-        default { "[..]"; "White" }
+    # Separate icon/color from counter side-effects to keep $icon clean
+    $stepIcon = "[..]"
+    $stepColor = "White"
+    switch ($Status) {
+        "OK"   { $stepIcon = "[OK]"; $stepColor = "Green" }
+        "SKIP" { $stepIcon = "[--]"; $stepColor = "DarkGray" }
+        "WARN" { $stepIcon = "[!!]"; $stepColor = "Yellow"; $script:Warnings++ }
+        "FAIL" { $stepIcon = "[XX]"; $stepColor = "Red"; $script:Errors++ }
     }
     
-    Write-Host "  $($icon[0]) " -ForegroundColor $icon[1] -NoNewline
+    Write-Host "  $stepIcon " -ForegroundColor $stepColor -NoNewline
     Write-Host "$Step" -ForegroundColor White
     if ($Detail) { Write-Host "      $Detail" -ForegroundColor DarkGray }
     
@@ -307,9 +309,24 @@ function Restore-PowerSettings {
     Write-ResetLog "Restoring power settings..." "INFO"
     
     try {
-        if ($PSCmdlet.ShouldProcess("Power Plan", "Restore to Balanced")) {
-            # Switch back to Balanced power plan
-            & powercfg /SETACTIVE 381b4222-f694-41f0-9685-ff5bb260df2e 2>$null
+        # Attempt to restore the original power plan from backup
+        $originalPlanGuid = "381b4222-f694-41f0-9685-ff5bb260df2e"  # Balanced (fallback)
+        $planSource = "Balanced (default)"
+        if (Test-Path $BackupFile) {
+            try {
+                $backup = Get-Content $BackupFile -Raw | ConvertFrom-Json
+                $planOutput = $backup.PowerPlan
+                # powercfg /GETACTIVESCHEME output format: "Power Scheme GUID: <guid>  (<name>)"
+                if ($planOutput -match "([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})") {
+                    $originalPlanGuid = $Matches[1]
+                    $planSource = "from backup"
+                }
+            }
+            catch {}
+        }
+
+        if ($PSCmdlet.ShouldProcess("Power Plan", "Restore to $planSource ($originalPlanGuid)")) {
+            & powercfg /SETACTIVE $originalPlanGuid 2>$null
             
             # Re-enable USB selective suspend (AutoLockdown disables it)
             & powercfg /SETACVALUEINDEX SCHEME_CURRENT 2a737441-1930-4402-8d77-b2beb146644c 48e6b7a6-50f5-4782-a5d4-53bb8f07e226 1 2>$null
@@ -327,7 +344,7 @@ function Restore-PowerSettings {
                 catch {}
             }
             
-            Write-Step "Restore power settings" "OK" "Balanced plan, USB suspend enabled, network power mgmt restored"
+            Write-Step "Restore power settings" "OK" "Plan: $planSource, USB suspend enabled, network power mgmt restored"
         }
     }
     catch {
@@ -520,7 +537,7 @@ function Show-ResetConfirmation {
     $lblIcon = New-Object System.Windows.Forms.Label
     $lblIcon.Location = New-Object System.Drawing.Point(20, 15)
     $lblIcon.Size = New-Object System.Drawing.Size(50, 50)
-    $lblIcon.Text = "⚠️"
+    $lblIcon.Text = "[!!]"
     $lblIcon.Font = New-Object System.Drawing.Font("Segoe UI", 28)
     $lblIcon.ForeColor = [System.Drawing.Color]::FromArgb(255, 180, 0)
     $form.Controls.Add($lblIcon)
@@ -629,7 +646,7 @@ function Show-ResetSummaryGUI {
     $lblIcon = New-Object System.Windows.Forms.Label
     $lblIcon.Location = New-Object System.Drawing.Point(20, 20)
     $lblIcon.Size = New-Object System.Drawing.Size(50, 50)
-    $lblIcon.Text = if ($success) { "✅" } else { "⚠️" }
+    $lblIcon.Text = if ($success) { "[OK]" } else { "[!!]" }
     $lblIcon.Font = New-Object System.Drawing.Font("Segoe UI", 28)
     $form.Controls.Add($lblIcon)
     
