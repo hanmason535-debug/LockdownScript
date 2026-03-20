@@ -44,8 +44,11 @@ $ProductName = "AutoLockdown"
 
 # Load assemblies
 Add-Type -AssemblyName System.Security
-Add-Type -AssemblyName System.Windows.Forms
-Add-Type -AssemblyName System.Drawing
+# Lazy-load GUI assemblies only when needed for -Interactive mode
+if ($Interactive) {
+    Add-Type -AssemblyName System.Windows.Forms
+    Add-Type -AssemblyName System.Drawing
+}
 $DPAPI_SCOPE = [System.Security.Cryptography.DataProtectionScope]::LocalMachine
 
 function Unprotect-Data {
@@ -159,6 +162,7 @@ function Write-Check {
         [string]$Detail = ""
     )
     
+    $color = "White"
     $icon = switch ($Status) {
         "PASS" { "[OK]"; $color = "Green" }
         "WARN" { "[!]"; $color = "Yellow"; $script:Warnings++ }
@@ -240,7 +244,7 @@ function Test-MonitorRunning {
             if (Wait-Job $job -Timeout 5) {
                 $process = Receive-Job $job
             }
-            Remove-Job $job -Force
+            Remove-Job $job -Force -ErrorAction SilentlyContinue
             
             if ($process) {
                 $startTime = if ($lockContent -match "Started:([^|]+)") {
@@ -562,7 +566,7 @@ function Test-InfrastructureDevices {
             
             if ($Detailed) {
                 foreach ($dev in $infraDevices) {
-                    Write-Host "    🏗️ $($dev.FriendlyName)" -ForegroundColor Cyan
+                    Write-Host "    [INFRA] $($dev.FriendlyName)" -ForegroundColor Cyan
                 }
             }
         }
@@ -789,7 +793,7 @@ function Show-VerifyDashboard {
     $lblTitle = New-Object System.Windows.Forms.Label
     $lblTitle.Location = New-Object System.Drawing.Point(15, 12)
     $lblTitle.Size = New-Object System.Drawing.Size(500, 30)
-    $lblTitle.Text = "🔍 System Verification Results"
+    $lblTitle.Text = "System Verification Results"
     $lblTitle.Font = New-Object System.Drawing.Font("Segoe UI", 16, [System.Drawing.FontStyle]::Bold)
     $lblTitle.ForeColor = $colorText
     $form.Controls.Add($lblTitle)
@@ -811,7 +815,7 @@ function Show-VerifyDashboard {
     $lblPass = New-Object System.Windows.Forms.Label
     $lblPass.Location = New-Object System.Drawing.Point(20, 15)
     $lblPass.Size = New-Object System.Drawing.Size(150, 40)
-    $lblPass.Text = "✓ PASS: $passed"
+    $lblPass.Text = "[OK] PASS: $passed"
     $lblPass.Font = New-Object System.Drawing.Font("Segoe UI", 14, [System.Drawing.FontStyle]::Bold)
     $lblPass.ForeColor = $colorOK
     $pnlStats.Controls.Add($lblPass)
@@ -820,7 +824,7 @@ function Show-VerifyDashboard {
     $lblWarn = New-Object System.Windows.Forms.Label
     $lblWarn.Location = New-Object System.Drawing.Point(180, 15)
     $lblWarn.Size = New-Object System.Drawing.Size(150, 40)
-    $lblWarn.Text = "⚠ WARN: $warned"
+    $lblWarn.Text = "[!!] WARN: $warned"
     $lblWarn.Font = New-Object System.Drawing.Font("Segoe UI", 14, [System.Drawing.FontStyle]::Bold)
     $lblWarn.ForeColor = $colorWarn
     $pnlStats.Controls.Add($lblWarn)
@@ -830,7 +834,7 @@ function Show-VerifyDashboard {
     $lblFail.Location = New-Object System.Drawing.Point(340, 15)
     $lblFail.Size = New-Object System.Drawing.Size(150, 40)
     $lblFail.Font = New-Object System.Drawing.Font("Segoe UI", 14, [System.Drawing.FontStyle]::Bold)
-    $lblFail.Text = "✗ FAIL: $failed"
+    $lblFail.Text = "[X] FAIL: $failed"
     $lblFail.ForeColor = $colorFail
     $pnlStats.Controls.Add($lblFail)
     
@@ -856,10 +860,10 @@ function Show-VerifyDashboard {
     $yPos = 8
     foreach ($check in $script:Checks) {
         $icon = switch ($check.Status) {
-            "PASS" { "✓"; $color = $colorOK }
-            "WARN" { "⚠"; $color = $colorWarn }
-            "FAIL" { "✗"; $color = $colorFail }
-            default { "●"; $color = $colorDim }
+            "PASS" { "[OK]"; $color = $colorOK }
+            "WARN" { "[!!]"; $color = $colorWarn }
+            "FAIL" { "[X]"; $color = $colorFail }
+            default { "[*]"; $color = $colorDim }
         }
         
         $lbl = New-Object System.Windows.Forms.Label
@@ -917,7 +921,7 @@ Test-DeployedVersion
 Write-Host ""
 Write-Host "Configuration Files:" -ForegroundColor Yellow
 Test-FileIntegrity -Path $USBWhitelist -Name "USB Whitelist"
-Test-FileIntegrity -Path $NetWhitelist -Name "Network Whitelist" -IsEncrypted
+Test-FileIntegrity -Path $NetWhitelist -Name "Network Whitelist"
 Test-FileIntegrity -Path $ThreatDBFile -Name "Threat Database"
 Test-FileIntegrity -Path $LearningFile -Name "Learning State" -IsEncrypted
 Test-FileIntegrity -Path $HIDVendorsFile -Name "HID Vendors"
@@ -1028,4 +1032,3 @@ elseif ($script:Warnings -gt 0) {
 else {
     exit 0
 }
-
