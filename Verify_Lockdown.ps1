@@ -417,12 +417,12 @@ function Test-USBWhitelist {
 
 function Test-NetworkPolicy {
     if (-not (Test-Path $NetWhitelist)) {
-        Write-Check -Component "Network Policy" -Status "FAIL" -Message "Network whitelist missing" -Detail "Expected: $NetWhitelist"
+        Write-Check -Component "Network Whitelist" -Status "FAIL" -Message "Network whitelist missing" -Detail "Expected: $NetWhitelist"
         return $false
     }
     
     try {
-        $data = Import-JsonSafe -Path $NetWhitelist -IsEncrypted
+        $data = Import-JsonSafe -Path $NetWhitelist
         if (-not $data) { throw "Unable to load network whitelist" }
         
         $count = if ($data.Adapters) { $data.Adapters.Count } else { 0 }
@@ -445,7 +445,7 @@ function Test-NetworkPolicy {
         return $true
     }
     catch {
-        Write-Check -Component "Network Policy" -Status "FAIL" -Message "Error reading network whitelist" -Detail "Error: $_"
+        Write-Check -Component "Network Whitelist" -Status "FAIL" -Message "Error reading network whitelist" -Detail "Error: $_"
         return $false
     }
 }

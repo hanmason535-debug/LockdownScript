@@ -144,9 +144,6 @@ $script:ThreatMap = @{}
 $script:HIDVendors = @()
 $script:ReadOnlyMode = $false
 $script:SafeMode = $false
-$script:EventQueue = $null
-$script:ProcessingTimer = $null
-$script:RecentlyProcessed = @{}
 $script:Metrics = @{
     TotalBlocks     = 0
     TotalLearned    = 0
@@ -415,11 +412,11 @@ function Write-LogMessage {
         if (Test-Path $LogFile) {
             $logSize = (Get-Item $LogFile).Length / 1MB
             if ($logSize -gt $MaxLogSizeMB) {
-                for ($i = $MaxLogFiles - 1; $i -ge 1; $i--) {
+                for ($i = $MaxLogFiles; $i -ge 1; $i--) {
                     $oldLog = "$LogFile.$i"
                     $newLog = "$LogFile.$($i + 1)"
                     if (Test-Path $oldLog) {
-                        if ($i -eq ($MaxLogFiles - 1)) { Remove-Item $oldLog -Force -ErrorAction SilentlyContinue }
+                        if ($i -eq $MaxLogFiles) { Remove-Item $oldLog -Force -ErrorAction SilentlyContinue }
                         else { Move-Item $oldLog $newLog -Force -ErrorAction SilentlyContinue }
                     }
                 }
@@ -431,7 +428,7 @@ function Write-LogMessage {
         
 
         
-        if (-not $Monitor) {
+        if (-not $Monitor -and -not $Silent) {
             $color = switch ($Level) {
                 "BLOCK" { "Red" }
                 "ERROR" { "Red" }
@@ -731,7 +728,7 @@ function Show-StatusDashboard {
     
     # Load configuration
     $learningState = Import-JsonSafe -Path $LearningFile -IsEncrypted:$true
-    $whitelist = Import-JsonSafe -Path $USBWhitelist -IsEncrypted:$true
+    $whitelist = Import-JsonSafe -Path $USBWhitelist
     $whitelistDevices = if ($whitelist -and $whitelist.Devices) { $whitelist.Devices } else { @() }
     $threatDB = Import-JsonSafe -Path $ThreatDBFile
     $threatSignatures = if ($threatDB -and $threatDB.Threats) { $threatDB.Threats } else { @{} }
@@ -1193,19 +1190,25 @@ function Get-LearningState {
         $localExpires = ([DateTime]::Parse($state.Expires)).ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")
         $state = $state.PSObject.Copy()
         $state.Expires = $localExpires
+        # Clear the UTC flag so callers do not double-convert the already-local value
+        $state.ExpiresUTC = $false
     }
     return $state
 }
 
 function Set-LearningState {
     param([string]$Mode, [DateTime]$Started, [DateTime]$Expires)
+    # Compute actual duration in minutes from the Expires parameter so that
+    # Invoke-ExtendLearning with a custom -ExtendMinutes value is handled correctly
+    # (previously $LearningWindowMinutes was used, which always defaulted to 180).
+    $actualMinutes = [math]::Max(1, [int](($Expires - (Get-Date)).TotalMinutes))
     $state = @{
         Mode = $Mode
         Started = $Started.ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss")
         Expires = $Expires.ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss")
         ExpiresUTC = $true
-        ExpiresTicks = (Get-MonotonicTimestamp) + ([long]$LearningWindowMinutes * 60000)
-        Version = $ScriptVersion; Author = $ScriptAuthor; Duration = $LearningWindowMinutes
+        ExpiresTicks = (Get-MonotonicTimestamp) + ([long]$actualMinutes * 60000)
+        Version = $ScriptVersion; Author = $ScriptAuthor; Duration = $actualMinutes
     }
     if (Export-JsonSafe -Data $state -Path $LearningFile -Encrypt) {
         Write-LogMessage "Learning state: $Mode" -Level "INFO"
@@ -1716,7 +1719,7 @@ function Protect-USBDevice {
     if ($threatInfo) { Deny-Device -Device $Device -Reason "Threat: $($threatInfo.Name)"; return }
     $learningMode = Update-LearningMode -Silent
     if ($learningMode -eq "Learning") {
-        if ($vidpid) { Add-ToWhitelist -VidPid $vidpid -DeviceName $Device.FriendlyName; $data = Import-JsonSafe -Path $USBWhitelist; $script:Whitelist = if ($data) { $data.Devices } else { @() }; Write-LogMessage "ALLOWED $($Device.FriendlyName) - Learning" -Level "SUCCESS"; $script:Metrics.TotalAllowed++ }
+        if ($vidpid) { if (Add-ToWhitelist -VidPid $vidpid -DeviceName $Device.FriendlyName) { $script:Metrics.TotalLearned++ }; $data = Import-JsonSafe -Path $USBWhitelist; $script:Whitelist = if ($data) { $data.Devices } else { @() }; Write-LogMessage "ALLOWED $($Device.FriendlyName) - Learning" -Level "SUCCESS"; $script:Metrics.TotalAllowed++ }
     }
     else { Deny-Device -Device $Device -Reason "Not whitelisted - Default Deny" }
 }
@@ -1919,13 +1922,13 @@ function Write-SecurityEvent {
     
     try {
         if (-not [System.Diagnostics.EventLog]::SourceExists("AutoLockdown")) {
-            New-EventLog -LogName Security -Source "AutoLockdown" -ErrorAction SilentlyContinue
+            New-EventLog -LogName Application -Source "AutoLockdown" -ErrorAction SilentlyContinue
         }
-        Write-EventLog -LogName Security -Source "AutoLockdown" -EventId $EventId -EntryType $Type -Message $Message -ErrorAction SilentlyContinue
+        Write-EventLog -LogName Application -Source "AutoLockdown" -EventId $EventId -EntryType $Type -Message $Message -ErrorAction SilentlyContinue
     }
     catch {
-        # Fallback to Application log
-        Write-EventLog -LogName Application -Source "AutoLockdown" -EventId $EventId -EntryType $Type -Message $Message -ErrorAction SilentlyContinue
+        # Fallback: log failure is non-fatal
+        Write-LogMessage "Event log write failed: $_" -Level "WARNING"
     }
 }
 
@@ -2122,7 +2125,7 @@ else {
     Write-Host ""
     Write-Host "  Examples:" -ForegroundColor Yellow
     Write-Host "    .\AutoLockdown.ps1 -Initialize -LearningWindowMinutes 180" -ForegroundColor White
-    Write-Host "    .\AutoLockdown.ps1 -ExtendLearning -LearningWindowMinutes 60" -ForegroundColor White
+    Write-Host "    .\AutoLockdown.ps1 -ExtendLearning -ExtendMinutes 60" -ForegroundColor White
     Write-Host "    .\AutoLockdown.ps1 -AddDevice -DeviceVidPid VID_1234&PID_5678" -ForegroundColor White
     Write-Host "    .\AutoLockdown.ps1 -ShowStatus" -ForegroundColor White
     Write-Host ""
