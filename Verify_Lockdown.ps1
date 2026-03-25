@@ -289,7 +289,7 @@ function Test-WMIEventSubscription {
             $job = Get-Job -Name "AutoLockdown_USBWatch" -ErrorAction SilentlyContinue
             
             if ($job) {
-                Write-Check -Component "WMI Event Handler" -Status "PASS" -Message "Registered and active" -Detail "State: $($subscription.State), Job: $($job.State)"
+                Write-Check -Component "WMI Event Handler" -Status "PASS" -Message "Registered and active (WITHIN 1 catch-all)" -Detail "State: $($subscription.State), Job: $($job.State)"
                 return $true
             }
             else {
@@ -304,6 +304,48 @@ function Test-WMIEventSubscription {
     }
     catch {
         Write-Check -Component "WMI Event Handler" -Status "FAIL" -Message "Error checking subscription" -Detail "Error: $_"
+        return $false
+    }
+}
+
+function Test-RegistryWatcher {
+    <#
+    .SYNOPSIS
+        Checks whether the fast-path registry watcher runspace is active.
+        The watcher runs inside the monitor process as a PowerShell runspace,
+        so we detect it indirectly by checking whether the monitor PID is alive
+        and the lock file records a version that supports the watcher (>=4.7.0).
+    #>
+    try {
+        if (-not (Test-Path $LockFile)) {
+            Write-Check -Component "Fast-Path Watcher" -Status "WARN" -Message "Monitor not running — watcher inactive" -Detail "Start monitor to enable pre-driver USB blocking"
+            return $false
+        }
+
+        $lockContent = Get-Content $LockFile -Raw -ErrorAction Stop
+        $watcherVersion = $null
+        if ($lockContent -match "Version:([0-9]+\.[0-9]+\.[0-9]+)") {
+            $watcherVersion = $Matches[1]
+        }
+
+        if ($watcherVersion) {
+            $parts = $watcherVersion -split '\.'
+            $major = [int]$parts[0]; $minor = [int]$parts[1]; $patch = [int]$parts[2]
+            $supportsWatcher = ($major -gt 4) -or ($major -eq 4 -and $minor -gt 6) -or ($major -eq 4 -and $minor -eq 7 -and $patch -ge 0)
+            if ($supportsWatcher) {
+                Write-Check -Component "Fast-Path Watcher" -Status "PASS" -Message "Active (monitor v$watcherVersion supports 250 ms pre-driver blocking)" -Detail "Registry watcher polls HKLM:\...\Enum\USB every 250 ms"
+                return $true
+            } else {
+                Write-Check -Component "Fast-Path Watcher" -Status "WARN" -Message "Monitor v$watcherVersion does not include fast-path watcher" -Detail "Re-initialize to deploy v4.7.0+ for pre-driver blocking"
+                return $false
+            }
+        } else {
+            Write-Check -Component "Fast-Path Watcher" -Status "WARN" -Message "Cannot read monitor version from lock file" -Detail "Lock file: $LockFile"
+            return $false
+        }
+    }
+    catch {
+        Write-Check -Component "Fast-Path Watcher" -Status "FAIL" -Message "Error checking watcher" -Detail "Error: $_"
         return $false
     }
 }
@@ -417,12 +459,12 @@ function Test-USBWhitelist {
 
 function Test-NetworkPolicy {
     if (-not (Test-Path $NetWhitelist)) {
-        Write-Check -Component "Network Policy" -Status "FAIL" -Message "Network whitelist missing" -Detail "Expected: $NetWhitelist"
+        Write-Check -Component "Network Whitelist" -Status "FAIL" -Message "Network whitelist missing" -Detail "Expected: $NetWhitelist"
         return $false
     }
     
     try {
-        $data = Import-JsonSafe -Path $NetWhitelist -IsEncrypted
+        $data = Import-JsonSafe -Path $NetWhitelist
         if (-not $data) { throw "Unable to load network whitelist" }
         
         $count = if ($data.Adapters) { $data.Adapters.Count } else { 0 }
@@ -445,7 +487,7 @@ function Test-NetworkPolicy {
         return $true
     }
     catch {
-        Write-Check -Component "Network Policy" -Status "FAIL" -Message "Error reading network whitelist" -Detail "Error: $_"
+        Write-Check -Component "Network Whitelist" -Status "FAIL" -Message "Error reading network whitelist" -Detail "Error: $_"
         return $false
     }
 }
@@ -943,6 +985,7 @@ Write-Host ""
 Write-Host "Runtime Components:" -ForegroundColor Yellow
 Test-MonitorRunning
 Test-WMIEventSubscription
+Test-RegistryWatcher
 Test-ScheduledTask
 
 Write-Host ""

@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    AutoLockdown v4.6.0 - Enterprise USB Security Hardening Suite
+    AutoLockdown v4.7.0 - Enterprise USB Security Hardening Suite
 .DESCRIPTION
     Production-grade USB security enforcement with intelligent learning mode,
     threat detection, and comprehensive monitoring capabilities.
@@ -9,14 +9,27 @@
     ENFORCEMENT MODE: Block all unauthorized USB devices
     HID PROTECTION: Always allow trusted keyboards/mice by vendor ID
     THREAT DETECTION: Block known attack devices (Rubber Ducky, Bash Bunny, etc.)
+    FAST-PATH BLOCKING: Registry watcher blocks unknown devices before driver install
     
 .NOTES
     File Name : AutoLockdown.ps1
-    Version   : 4.6.0
+    Version   : 4.7.0
     Author    : Meet Gandhi (Product Security Engineer)
     Created   : February 2026
     Requires  : PowerShell 5.1+, Administrator privileges
     
+    Changelog v4.7.0:
+    - Added fast-path registry watcher runspace (250 ms polling) that detects and
+      blocks unauthorized USB devices the instant the OS writes their registry entry,
+      BEFORE any device driver is loaded — solves the 40-second blocking delay on
+      iOS, Android, and USBSTOR devices observed on the Intel NUC Win11 deployment
+    - Reduced WMI polling interval from WITHIN 2 to WITHIN 1 (secondary catch-all)
+    - WMI handler now skips devices already disabled by the fast-path watcher
+    - Added Start-RegistryWatcher function and $script:RegWatcher state variable
+    - Registry watcher correctly handles HID vendor check using registry Class value
+      so Apple iPhones (VID_05AC, class "Image"/"WPD") are not falsely allowed
+    - Watcher runspace is fully cleaned up on monitor exit
+
     Changelog v4.6.0:
     - Fixed screen/sleep timeout overriding LogMeIn "Never" setting
     - Fixed WMI event handler failing to read DPAPI-encrypted whitelists
@@ -89,7 +102,7 @@ if (-not $Monitor) {
 # Encryption Scope (LocalMachine allows authorized admins/SYSTEM to decrypt)
 $DPAPI_SCOPE = [System.Security.Cryptography.DataProtectionScope]::LocalMachine
 
-$ScriptVersion = "4.6.0"
+$ScriptVersion = "4.7.0"
 $ProductName = "AutoLockdown"
 
 
@@ -144,9 +157,7 @@ $script:ThreatMap = @{}
 $script:HIDVendors = @()
 $script:ReadOnlyMode = $false
 $script:SafeMode = $false
-$script:EventQueue = $null
-$script:ProcessingTimer = $null
-$script:RecentlyProcessed = @{}
+$script:RegWatcher = $null
 $script:Metrics = @{
     TotalBlocks     = 0
     TotalLearned    = 0
@@ -415,11 +426,11 @@ function Write-LogMessage {
         if (Test-Path $LogFile) {
             $logSize = (Get-Item $LogFile).Length / 1MB
             if ($logSize -gt $MaxLogSizeMB) {
-                for ($i = $MaxLogFiles - 1; $i -ge 1; $i--) {
+                for ($i = $MaxLogFiles; $i -ge 1; $i--) {
                     $oldLog = "$LogFile.$i"
                     $newLog = "$LogFile.$($i + 1)"
                     if (Test-Path $oldLog) {
-                        if ($i -eq ($MaxLogFiles - 1)) { Remove-Item $oldLog -Force -ErrorAction SilentlyContinue }
+                        if ($i -eq $MaxLogFiles) { Remove-Item $oldLog -Force -ErrorAction SilentlyContinue }
                         else { Move-Item $oldLog $newLog -Force -ErrorAction SilentlyContinue }
                     }
                 }
@@ -431,7 +442,7 @@ function Write-LogMessage {
         
 
         
-        if (-not $Monitor) {
+        if (-not $Monitor -and -not $Silent) {
             $color = switch ($Level) {
                 "BLOCK" { "Red" }
                 "ERROR" { "Red" }
@@ -731,7 +742,7 @@ function Show-StatusDashboard {
     
     # Load configuration
     $learningState = Import-JsonSafe -Path $LearningFile -IsEncrypted:$true
-    $whitelist = Import-JsonSafe -Path $USBWhitelist -IsEncrypted:$true
+    $whitelist = Import-JsonSafe -Path $USBWhitelist
     $whitelistDevices = if ($whitelist -and $whitelist.Devices) { $whitelist.Devices } else { @() }
     $threatDB = Import-JsonSafe -Path $ThreatDBFile
     $threatSignatures = if ($threatDB -and $threatDB.Threats) { $threatDB.Threats } else { @{} }
@@ -1193,19 +1204,25 @@ function Get-LearningState {
         $localExpires = ([DateTime]::Parse($state.Expires)).ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")
         $state = $state.PSObject.Copy()
         $state.Expires = $localExpires
+        # Clear the UTC flag so callers do not double-convert the already-local value
+        $state.ExpiresUTC = $false
     }
     return $state
 }
 
 function Set-LearningState {
     param([string]$Mode, [DateTime]$Started, [DateTime]$Expires)
+    # Compute actual duration in minutes from the Expires parameter so that
+    # Invoke-ExtendLearning with a custom -ExtendMinutes value is handled correctly
+    # (previously $LearningWindowMinutes was used, which always defaulted to 180).
+    $actualMinutes = [math]::Max(1, [int](($Expires - (Get-Date)).TotalMinutes))
     $state = @{
         Mode = $Mode
         Started = $Started.ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss")
         Expires = $Expires.ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss")
         ExpiresUTC = $true
-        ExpiresTicks = (Get-MonotonicTimestamp) + ([long]$LearningWindowMinutes * 60000)
-        Version = $ScriptVersion; Author = $ScriptAuthor; Duration = $LearningWindowMinutes
+        ExpiresTicks = (Get-MonotonicTimestamp) + ([long]$actualMinutes * 60000)
+        Version = $ScriptVersion; Author = $ScriptAuthor; Duration = $actualMinutes
     }
     if (Export-JsonSafe -Data $state -Path $LearningFile -Encrypt) {
         Write-LogMessage "Learning state: $Mode" -Level "INFO"
@@ -1511,6 +1528,227 @@ function Deny-Device {
 }
 
 # ============================================================================
+#   FAST-PATH REGISTRY WATCHER
+# ============================================================================
+
+function Start-RegistryWatcher {
+    <#
+    .SYNOPSIS
+        Starts a background PowerShell runspace that polls the USB device registry
+        hive every 250 ms and immediately blocks unauthorized devices BEFORE the
+        OS has a chance to load any device driver.
+
+    .DESCRIPTION
+        Windows writes the device entry under
+        HKLM:\SYSTEM\CurrentControlSet\Enum\USB\VID_XXXX&PID_YYYY\<serial>
+        the instant a USB device is detected — well before Win32_PnPEntity is
+        created and before driver installation begins.  By polling this hive at
+        250 ms intervals the watcher catches new arrivals and calls
+        Disable-PnpDevice on unauthorized devices, preventing drivers (USBSTOR,
+        Apple MTP, Android MTP) from ever binding.
+
+        HID vendor matching in this path also reads the early "Class" registry
+        value so that devices with an Apple VID (VID_05AC) that present as
+        "Image" or "WPD" (iPhones, iPads) are NOT granted the HID exemption —
+        they proceed to the whitelist/block decision instead.
+
+    .PARAMETER Config
+        Hashtable containing all paths and policy arrays the runspace needs.
+    #>
+    param([hashtable]$Config)
+
+    $runspace = [System.Management.Automation.Runspaces.RunspaceFactory]::CreateRunspace()
+    $runspace.Open()
+
+    foreach ($key in $Config.Keys) {
+        $runspace.SessionStateProxy.SetVariable($key, $Config[$key])
+    }
+
+    $ps = [System.Management.Automation.PowerShell]::Create()
+    $ps.Runspace = $runspace
+
+    [void]$ps.AddScript({
+        Add-Type -AssemblyName System.Security
+        $DPAPI_SCOPE = [System.Security.Cryptography.DataProtectionScope]::LocalMachine
+
+        # Registry-friendly HID class names set early by Windows
+        $HID_REGISTRY_CLASSES = @("HIDClass", "HID", "Keyboard", "Mouse", "Human Interface Device")
+
+        $knownInstanceIds = [System.Collections.Generic.HashSet[string]]::new(
+            [System.StringComparer]::OrdinalIgnoreCase)
+
+        # Pre-populate with devices already present so the watcher does not
+        # re-evaluate (and potentially double-block) devices connected before
+        # the monitor started.
+        try {
+            $existing = Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue |
+                Where-Object { $_.InstanceId -match '^USB\\' }
+            foreach ($dev in $existing) { [void]$knownInstanceIds.Add($dev.InstanceId) }
+        } catch {}
+
+        function Write-WatcherLog {
+            param([string]$Message, [string]$Level = "INFO")
+            $ts = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+            $line = "[$ts] [$Level] [FastPath] $Message"
+            Add-Content -Path $LogPath -Value $line -Force -ErrorAction SilentlyContinue
+        }
+
+        function Get-WhitelistFast {
+            try {
+                $raw = Get-Content $USBWhitelistPath -Raw -Encoding UTF8 -ErrorAction Stop
+                if (-not $raw.Trim().StartsWith("{")) {
+                    $bytes = [Convert]::FromBase64String($raw)
+                    $dec = [System.Security.Cryptography.ProtectedData]::Unprotect(
+                        $bytes, $null, $DPAPI_SCOPE)
+                    $raw = [System.Text.Encoding]::UTF8.GetString($dec)
+                }
+                return @(($raw | ConvertFrom-Json).Devices)
+            } catch { return @() }
+        }
+
+        function Get-LearningActiveFast {
+            try {
+                $raw = Get-Content $LearningFilePath -Raw -Encoding UTF8 -ErrorAction Stop
+                if (-not $raw.Trim().StartsWith("{")) {
+                    $bytes = [Convert]::FromBase64String($raw)
+                    $dec = [System.Security.Cryptography.ProtectedData]::Unprotect(
+                        $bytes, $null, $DPAPI_SCOPE)
+                    $raw = [System.Text.Encoding]::UTF8.GetString($dec)
+                }
+                $state = $raw | ConvertFrom-Json
+                if ($state.Mode -eq "Learning") {
+                    $expires = [DateTime]::Parse($state.Expires)
+                    if ($state.ExpiresUTC) { $expires = $expires.ToLocalTime() }
+                    return (Get-Date) -lt $expires
+                }
+                return $false
+            } catch { return $false }
+        }
+
+        $usbEnumPath = "HKLM:\SYSTEM\CurrentControlSet\Enum\USB"
+
+        while ($true) {
+            try {
+                if (-not (Test-Path $usbEnumPath)) { Start-Sleep -Milliseconds 250; continue }
+
+                $vidpidKeys = Get-ChildItem $usbEnumPath -ErrorAction SilentlyContinue
+                foreach ($vidpidKey in $vidpidKeys) {
+                    $vidpidName = $vidpidKey.PSChildName  # e.g. "VID_05AC&PID_12A8"
+
+                    # Only process standard VID&PID keys (skip ROOT_HUB, USB*, etc.)
+                    if ($vidpidName -notmatch '^VID_[0-9A-Fa-f]{4}&PID_[0-9A-Fa-f]{4}') { continue }
+
+                    $instanceKeys = Get-ChildItem $vidpidKey.PSPath -ErrorAction SilentlyContinue
+                    foreach ($instanceKey in $instanceKeys) {
+                        $instanceId = "USB\$vidpidName\$($instanceKey.PSChildName)"
+
+                        if ($knownInstanceIds.Contains($instanceId)) { continue }
+                        [void]$knownInstanceIds.Add($instanceId)
+
+                        # Extract normalised VID_XXXX&PID_YYYY
+                        $vidpid = $null
+                        if ($vidpidName -match 'VID_([0-9A-Fa-f]{4})&PID_([0-9A-Fa-f]{4})') {
+                            $vidpid = "VID_$($Matches[1].ToUpper())&PID_$($Matches[2].ToUpper())"
+                        }
+                        if (-not $vidpid) { continue }
+
+                        $idUpper = $vidpidName.ToUpper()
+
+                        # --- Check emergency bypass ---
+                        if (Test-Path $EmergencyBypassPath) {
+                            $bypassAge = ((Get-Date) - (Get-Item $EmergencyBypassPath).CreationTime).TotalMinutes
+                            if ($bypassAge -lt 30) {
+                                Write-WatcherLog "ALLOWED $vidpid - Emergency bypass" -Level "WARNING"
+                                continue
+                            }
+                        }
+
+                        # --- Check always-allowed infrastructure devices ---
+                        $isInfra = $false
+                        foreach ($vendor in $AlwaysAllowedVendors) {
+                            if ($idUpper -match [regex]::Escape($vendor.ToUpper())) { $isInfra = $true; break }
+                        }
+                        if ($isInfra) { Write-WatcherLog "ALLOWED $vidpid - Infrastructure" -Level "SUCCESS"; continue }
+
+                        # --- Check trusted HID vendors with registry-class guard ---
+                        # Read the "Class" value written early by Windows (before driver binds).
+                        # If Class is absent the device is still being enumerated; treat as non-HID
+                        # so we do NOT falsely allow iPhones (VID_05AC class=Image/WPD).
+                        $regClass = $null
+                        try {
+                            $regClass = (Get-ItemProperty $instanceKey.PSPath -Name "Class" -ErrorAction SilentlyContinue).Class
+                        } catch {}
+
+                        $isHIDVendor = $false
+                        foreach ($vendor in $HIDVendors) {
+                            if ($idUpper -match [regex]::Escape($vendor.ToUpper())) { $isHIDVendor = $true; break }
+                        }
+                        if ($isHIDVendor -and $regClass -and $HID_REGISTRY_CLASSES -contains $regClass) {
+                            Write-WatcherLog "ALLOWED $vidpid - Trusted HID vendor" -Level "SUCCESS"
+                            continue
+                        }
+                        # If vendor is in the HID list but:
+                        #   - Class value is not yet set (device still enumerating), OR
+                        #   - Class is non-HID (e.g. Apple iPhone: VID_05AC, class=Image/WPD)
+                        # fall through to the whitelist/block decision.
+
+                        # --- Check learning mode ---
+                        if (Get-LearningActiveFast) {
+                            Write-WatcherLog "ALLOWED $vidpid - Learning mode" -Level "SUCCESS"
+                            continue
+                        }
+
+                        # --- Check whitelist ---
+                        $whitelist = Get-WhitelistFast
+                        if ($whitelist -contains $vidpid) {
+                            Write-WatcherLog "ALLOWED $vidpid - Whitelisted" -Level "SUCCESS"
+                            continue
+                        }
+
+                        # --- Not whitelisted in enforcement mode: BLOCK immediately ---
+                        Write-WatcherLog "BLOCKING $vidpid ($instanceId) before driver install" -Level "BLOCK"
+
+                        # Retry up to 5 × 100 ms while the devnode is being created
+                        $blocked = $false
+                        for ($attempt = 0; $attempt -lt 5; $attempt++) {
+                            try {
+                                $pnpDev = Get-PnpDevice -InstanceId $instanceId -ErrorAction SilentlyContinue
+                                if ($pnpDev) {
+                                    if ($pnpDev.Status -eq "Error") {
+                                        # Already disabled (possibly by a prior attempt)
+                                        $blocked = $true; break
+                                    }
+                                    Disable-PnpDevice -InstanceId $instanceId -Confirm:$false -ErrorAction Stop
+                                    # Set ConfigFlags = 1 (disabled) to survive reboot
+                                    $regPath = "HKLM:\SYSTEM\CurrentControlSet\Enum\$instanceId"
+                                    if (Test-Path $regPath) {
+                                        Set-ItemProperty -Path $regPath -Name "ConfigFlags" `
+                                            -Value 0x00000001 -Force -ErrorAction SilentlyContinue
+                                    }
+                                    Write-WatcherLog "BLOCKED $vidpid ($instanceId) - enforcement (fast-path)" -Level "BLOCK"
+                                    $blocked = $true; break
+                                }
+                            } catch {}
+                            Start-Sleep -Milliseconds 100
+                        }
+
+                        if (-not $blocked) {
+                            Write-WatcherLog "WARN: devnode not ready for $vidpid — WMI handler will catch it" -Level "WARNING"
+                        }
+                    }
+                }
+            } catch {
+                # Swallow all watcher-loop errors; never let the runspace exit
+            }
+            Start-Sleep -Milliseconds 250
+        }
+    })
+
+    $asyncResult = $ps.BeginInvoke()
+    return @{ PS = $ps; Runspace = $runspace; AsyncResult = $asyncResult }
+}
+
+# ============================================================================
 #   REAL-TIME MONITORING
 # ============================================================================
 
@@ -1555,9 +1793,25 @@ function Start-RealtimeMonitoring {
     $devs = Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue | Where-Object { $_.InstanceId -match '^USB\\' }
     foreach ($d in $devs) { Protect-USBDevice -Device $d -IsStartup $true }
     
+    # Start the fast-path registry watcher.  It polls HKLM:\...\Enum\USB every
+    # 250 ms and blocks unknown devices before any driver can bind.
+    Write-LogMessage "Starting fast-path registry watcher (250 ms)..." -Level "INFO"
+    $watcherConfig = @{
+        LogPath             = $LogFile
+        USBWhitelistPath    = $USBWhitelist
+        LearningFilePath    = $LearningFile
+        EmergencyBypassPath = $EmergencyBypassFile
+        AlwaysAllowedVendors = $ALWAYS_ALLOWED_USB_VENDORS
+        HIDVendors          = if ($script:HIDVendors.Count -gt 0) { $script:HIDVendors } else { $TRUSTED_HID_VENDORS }
+    }
+    $script:RegWatcher = Start-RegistryWatcher -Config $watcherConfig
+    Write-LogMessage "Fast-path registry watcher started" -Level "SUCCESS"
+
     Write-LogMessage "Registering WMI event subscription..." -Level "SUCCESS"
     
-    $query = "SELECT * FROM __InstanceCreationEvent WITHIN 2 WHERE TargetInstance ISA 'Win32_PnPEntity' AND TargetInstance.DeviceID LIKE 'USB\\VID%'"
+    # WITHIN 1: secondary catch-all fires every 1 s (after Win32_PnPEntity exists,
+    # i.e. after driver install); the registry watcher above handles pre-driver blocking.
+    $query = "SELECT * FROM __InstanceCreationEvent WITHIN 1 WHERE TargetInstance ISA 'Win32_PnPEntity' AND TargetInstance.DeviceID LIKE 'USB\\VID%'"
     $messageData = @{ LogPath = $LogFile; USBWhitelistPath = $USBWhitelist; ThreatDBPath = $ThreatDBFile; HIDVendorsPath = $HIDVendorsFile; LearningFilePath = $LearningFile; BasePath = $BasePath; ScriptAuthor = $ScriptAuthor; ScriptVersion = $ScriptVersion; MaxWhitelistDevices = $MaxWhitelistDevices; MutexTimeout = $MutexTimeout; AlwaysAllowedVendors = $ALWAYS_ALLOWED_USB_VENDORS; EmergencyBypassPath = $EmergencyBypassFile }
     
     Register-WmiEvent -Query $query -SourceIdentifier "AutoLockdown_USBWatch" -MessageData $messageData -Action {
@@ -1572,6 +1826,13 @@ function Start-RealtimeMonitoring {
             $fullDev = Get-PnpDevice -InstanceId $deviceId -ErrorAction SilentlyContinue
             if (-not $fullDev) { return }
             
+            # Fast-path dedup: if the registry watcher already disabled this device,
+            # skip all further processing to avoid redundant log entries.
+            if ($fullDev.Status -eq "Error") {
+                Add-Content -Path $data.LogPath -Value "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] [INFO] [WMI] Already blocked by fast-path: $($fullDev.FriendlyName)" -Force
+                return
+            }
+
             $ts = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
 
             # Check emergency bypass (allows all devices for 30 min)
@@ -1691,6 +1952,14 @@ function Start-RealtimeMonitoring {
     finally {
         Get-EventSubscriber -SourceIdentifier "AutoLockdown_USBWatch" -ErrorAction SilentlyContinue | Unregister-Event
         Get-Job -Name "AutoLockdown_USBWatch" -ErrorAction SilentlyContinue | Remove-Job -Force
+        # Stop the fast-path registry watcher runspace
+        if ($script:RegWatcher) {
+            try { $script:RegWatcher.PS.Stop()      } catch {}
+            try { $script:RegWatcher.PS.Dispose()   } catch {}
+            try { $script:RegWatcher.Runspace.Close()   } catch {}
+            try { $script:RegWatcher.Runspace.Dispose() } catch {}
+            $script:RegWatcher = $null
+        }
         if (Test-Path $LockFile) { Remove-Item $LockFile -Force -ErrorAction SilentlyContinue }
         Write-LogMessage "Monitor stopped" -Level "INFO"
     }
@@ -1716,7 +1985,7 @@ function Protect-USBDevice {
     if ($threatInfo) { Deny-Device -Device $Device -Reason "Threat: $($threatInfo.Name)"; return }
     $learningMode = Update-LearningMode -Silent
     if ($learningMode -eq "Learning") {
-        if ($vidpid) { Add-ToWhitelist -VidPid $vidpid -DeviceName $Device.FriendlyName; $data = Import-JsonSafe -Path $USBWhitelist; $script:Whitelist = if ($data) { $data.Devices } else { @() }; Write-LogMessage "ALLOWED $($Device.FriendlyName) - Learning" -Level "SUCCESS"; $script:Metrics.TotalAllowed++ }
+        if ($vidpid) { if (Add-ToWhitelist -VidPid $vidpid -DeviceName $Device.FriendlyName) { $script:Metrics.TotalLearned++ }; $data = Import-JsonSafe -Path $USBWhitelist; $script:Whitelist = if ($data) { $data.Devices } else { @() }; Write-LogMessage "ALLOWED $($Device.FriendlyName) - Learning" -Level "SUCCESS"; $script:Metrics.TotalAllowed++ }
     }
     else { Deny-Device -Device $Device -Reason "Not whitelisted - Default Deny" }
 }
@@ -1919,13 +2188,13 @@ function Write-SecurityEvent {
     
     try {
         if (-not [System.Diagnostics.EventLog]::SourceExists("AutoLockdown")) {
-            New-EventLog -LogName Security -Source "AutoLockdown" -ErrorAction SilentlyContinue
+            New-EventLog -LogName Application -Source "AutoLockdown" -ErrorAction SilentlyContinue
         }
-        Write-EventLog -LogName Security -Source "AutoLockdown" -EventId $EventId -EntryType $Type -Message $Message -ErrorAction SilentlyContinue
+        Write-EventLog -LogName Application -Source "AutoLockdown" -EventId $EventId -EntryType $Type -Message $Message -ErrorAction SilentlyContinue
     }
     catch {
-        # Fallback to Application log
-        Write-EventLog -LogName Application -Source "AutoLockdown" -EventId $EventId -EntryType $Type -Message $Message -ErrorAction SilentlyContinue
+        # Fallback: log failure is non-fatal
+        Write-LogMessage "Event log write failed: $_" -Level "WARNING"
     }
 }
 
@@ -2122,7 +2391,7 @@ else {
     Write-Host ""
     Write-Host "  Examples:" -ForegroundColor Yellow
     Write-Host "    .\AutoLockdown.ps1 -Initialize -LearningWindowMinutes 180" -ForegroundColor White
-    Write-Host "    .\AutoLockdown.ps1 -ExtendLearning -LearningWindowMinutes 60" -ForegroundColor White
+    Write-Host "    .\AutoLockdown.ps1 -ExtendLearning -ExtendMinutes 60" -ForegroundColor White
     Write-Host "    .\AutoLockdown.ps1 -AddDevice -DeviceVidPid VID_1234&PID_5678" -ForegroundColor White
     Write-Host "    .\AutoLockdown.ps1 -ShowStatus" -ForegroundColor White
     Write-Host ""

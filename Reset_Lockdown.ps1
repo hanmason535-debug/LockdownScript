@@ -389,7 +389,6 @@ function Remove-ConfigFiles {
         "Learning_State.json",
         "Deployment_Meta.json",
         "System_Backup.json",
-        "Metrics.json",
         "monitor.lock",
         "EMERGENCY_BYPASS"
     )

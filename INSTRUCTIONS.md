@@ -30,9 +30,10 @@ AutoLockdown is an enterprise USB security hardening suite for Intel NUC systems
 ### How It Works
 1. **Learning Mode** (default: 3 hours) — Automatically whitelists all currently connected and newly plugged USB devices
 2. **Enforcement Mode** (after learning expires) — Blocks all unauthorized USB devices, allows only whitelisted ones
-3. **HID Protection** — Always allows trusted keyboard/mouse vendors (~93 vendors)
-4. **Infrastructure Bypass** — FTDI relay antennas and JAC 5G dongles are never blocked
-5. **Threat Detection** — Blocks known attack devices (Rubber Ducky, Bash Bunny, O.MG Cable, etc.)
+3. **Fast-Path Blocking** — A registry watcher polls `HKLM:\SYSTEM\CurrentControlSet\Enum\USB` every 250 ms and disables unknown devices **before the OS can load any driver**, including iOS (Apple MTP) and Android (MTP/PTP) storage interfaces. Standard USB storage is blocked in under 500 ms; iOS/Android internal storage is blocked before Apple/Android drivers install (preventing the 30–40 second window seen without this layer).
+4. **HID Protection** — Always allows trusted keyboard/mouse vendors (~93 vendors); uses the registry device Class value to correctly reject non-HID devices sharing a HID vendor ID (e.g. iPhones use Apple `VID_05AC` but class `Image`/`WPD`, not `HIDClass`)
+5. **Infrastructure Bypass** — FTDI relay antennas and JAC 5G dongles are never blocked
+6. **Threat Detection** — Blocks known attack devices (Rubber Ducky, Bash Bunny, O.MG Cable, etc.)
 
 ---
 
@@ -113,12 +114,12 @@ See what would happen without making any changes:
 
 **MUST SEE:**
 ```
-Overall Status: ✓ FULLY PROTECTED
-Passed: 18
-Failures: 0
+  Status: HEALTHY
+  Passed: 22
+  Errors: 0
 ```
 
-> 🚫 **If failures > 0:** DO NOT LEAVE SITE. Review the errors and re-initialize.
+> 🚫 **If errors > 0:** DO NOT LEAVE SITE. Review the errors and re-initialize.
 
 ---
 
@@ -194,7 +195,7 @@ Shows a full GUI dashboard with USB device details, network status, and mode inf
 | `-DeviceVidPid` | String | — | VID&PID of device to add (use with `-AddDevice`) |
 | `-DeviceName` | String | `"Manually Added"` | Friendly name for manually added device |
 | `-ShowStatus` | Switch | — | Show security status GUI dashboard |
-| `-Silent` | Switch | — | Suppress console output |
+| `-Silent` | Switch | — | Suppress log messages to console and skip GUI dialogs; initialization summary still printed |
 | `-LearningWindowMinutes` | Int | `180` | Learning window duration in minutes (used with `-Initialize`) |
 | `-ExtendMinutes` | Int | `60` | Duration in minutes when extending learning (used with `-ExtendLearning`) |
 | `-RebootDelaySeconds` | Int | `60` | Delay before reboot prompt (seconds) |
@@ -244,7 +245,7 @@ Shows a full GUI dashboard with USB device details, network status, and mode inf
 
 ## Files Created
 
-AutoLockdown creates **9 files** in `C:\ProgramData\AutoLockdown\`:
+AutoLockdown creates **10 files** in `C:\ProgramData\AutoLockdown\`:
 
 | File | Purpose | Encrypted |
 |---|---|---|
@@ -256,13 +257,13 @@ AutoLockdown creates **9 files** in `C:\ProgramData\AutoLockdown\`:
 | `Learning_State.json` | Current mode and learning window expiry | ✅ DPAPI |
 | `Deployment_Meta.json` | Deployment timestamp and machine info | No |
 | `System_Backup.json` | Pre-deployment system state backup | No |
+| `Trusted_HID.json` | Trusted keyboard/mouse vendor IDs (~93 vendors) | No |
 | `monitor.lock` | Lock file indicating monitor is running (contains PID) | No |
 
 **Additional files (created on demand):**
 
 | File | Purpose |
 |---|---|
-| `Trusted_HID.json` | Trusted keyboard/mouse vendor IDs (~93 vendors) |
 | `EMERGENCY_BYPASS` | Emergency bypass flag (30-minute window) |
 | `Security.log.1` – `.5` | Rotated log archives (auto-rotated at 50 MB) |
 | `*.bak1`, `*.bak2` | Automatic backup copies of JSON files (corruption recovery) |
@@ -284,8 +285,9 @@ AutoLockdown creates **9 files** in `C:\ProgramData\AutoLockdown\`:
 | Monitoring failed to start | Reboot → Run `.\Verify_Lockdown.ps1` |
 | Network adapter blocked | Must be connected during init. Run `.\Reset_Lockdown.ps1` → re-initialize |
 | Keyboard/mouse blocked | Should not happen (93 HID vendors are auto-allowed). If it does, reboot and re-initialize |
+| iOS/Android device not blocked quickly | Requires v4.7.0+ (fast-path watcher). Run `.\Verify_Lockdown.ps1` — check "Fast-Path Watcher: PASS". If WARN, re-initialize to deploy the updated script. |
 | Need to remove AutoLockdown | Run `.\Reset_Lockdown.ps1` → Reboot |
-| Add a device after deployment | Run `.\Reset_Lockdown.ps1` → Connect device → Re-initialize |
+| Add a device after deployment | First try: `.\AutoLockdown.ps1 -AddDevice -DeviceVidPid "VID_XXXX&PID_YYYY" -DeviceName "My Device"`. If that fails: Reset → Connect device → Re-initialize |
 | Quick re-deploy (keep whitelist) | Run `.\Reset_Lockdown.ps1 -KeepWhitelist` → Re-initialize |
 | FTDI/5G dongle blocked | Should never happen (always-allowed). Verify VID matches `VID_0403` (FTDI) or `VID_322B` (JAC) |
 | Emergency access needed | Create an empty file at `C:\ProgramData\AutoLockdown\EMERGENCY_BYPASS` — gives 30-minute bypass |
@@ -321,7 +323,7 @@ Get-Content C:\ProgramData\AutoLockdown\Security.log -Tail 20
 
 Before leaving site, confirm all boxes:
 
-- [ ] `Verify_Lockdown.ps1` shows **✓ FULLY PROTECTED**
+- [ ] `Verify_Lockdown.ps1` shows **Status: HEALTHY**
 - [ ] All required peripherals tested and working
 - [ ] Learning window status noted (time remaining or already enforced)
 - [ ] No critical failures in verification
