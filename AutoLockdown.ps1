@@ -21,7 +21,7 @@
     Changelog v4.7.0:
     - Added fast-path registry watcher runspace (250 ms polling) that detects and
       blocks unauthorized USB devices the instant the OS writes their registry entry,
-      BEFORE any device driver is loaded — solves the 40-second blocking delay on
+      BEFORE any device driver is loaded  -  solves the 40-second blocking delay on
       iOS, Android, and USBSTOR devices observed on the Intel NUC Win11 deployment
     - Reduced WMI polling interval from WITHIN 2 to WITHIN 1 (secondary catch-all)
     - WMI handler now skips devices already disabled by the fast-path watcher
@@ -1541,7 +1541,7 @@ function Start-RegistryWatcher {
     .DESCRIPTION
         Windows writes the device entry under
         HKLM:\SYSTEM\CurrentControlSet\Enum\USB\VID_XXXX&PID_YYYY\<serial>
-        the instant a USB device is detected — well before Win32_PnPEntity is
+        the instant a USB device is detected  -  well before Win32_PnPEntity is
         created and before driver installation begins.  By polling this hive at
         250 ms intervals the watcher catches new arrivals and calls
         Disable-PnpDevice on unauthorized devices, preventing drivers (USBSTOR,
@@ -1549,7 +1549,7 @@ function Start-RegistryWatcher {
 
         HID vendor matching in this path also reads the early "Class" registry
         value so that devices with an Apple VID (VID_05AC) that present as
-        "Image" or "WPD" (iPhones, iPads) are NOT granted the HID exemption —
+        "Image" or "WPD" (iPhones, iPads) are NOT granted the HID exemption  - 
         they proceed to the whitelist/block decision instead.
 
     .PARAMETER Config
@@ -1708,7 +1708,7 @@ function Start-RegistryWatcher {
                         # --- Not whitelisted in enforcement mode: BLOCK immediately ---
                         Write-WatcherLog "BLOCKING $vidpid ($instanceId) before driver install" -Level "BLOCK"
 
-                        # Retry up to 5 × 100 ms while the devnode is being created
+                        # Retry up to 5 x 100 ms while the devnode is being created
                         $blocked = $false
                         for ($attempt = 0; $attempt -lt 5; $attempt++) {
                             try {
@@ -1733,7 +1733,7 @@ function Start-RegistryWatcher {
                         }
 
                         if (-not $blocked) {
-                            Write-WatcherLog "WARN: devnode not ready for $vidpid — WMI handler will catch it" -Level "WARNING"
+                            Write-WatcherLog "WARN: devnode not ready for $vidpid  -  WMI handler will catch it" -Level "WARNING"
                         }
                     }
                 }
