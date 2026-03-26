@@ -1549,7 +1549,7 @@ function Start-RegistryWatcher {
 
         HID vendor matching in this path also reads the early "Class" registry
         value so that devices with an Apple VID (VID_05AC) that present as
-        "Image" or "WPD" (iPhones, iPads) are NOT granted the HID exemption  - 
+        "Image" or "WPD" (iPhones, iPads) are NOT granted the HID exemption  -
         they proceed to the whitelist/block decision instead.
 
     .PARAMETER Config
