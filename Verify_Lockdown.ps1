@@ -318,7 +318,7 @@ function Test-RegistryWatcher {
     #>
     try {
         if (-not (Test-Path $LockFile)) {
-            Write-Check -Component "Fast-Path Watcher" -Status "WARN" -Message "Monitor not running — watcher inactive" -Detail "Start monitor to enable pre-driver USB blocking"
+            Write-Check -Component "Fast-Path Watcher" -Status "WARN" -Message "Monitor not running  -  watcher inactive" -Detail "Start monitor to enable pre-driver USB blocking"
             return $false
         }
 
