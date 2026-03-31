@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    AutoLockdown v4.7.0 - Enterprise USB Security Hardening Suite
+    AutoLockdown v4.7.1 - Enterprise USB Security Hardening Suite
 .DESCRIPTION
     Production-grade USB security enforcement with intelligent learning mode,
     threat detection, and comprehensive monitoring capabilities.
@@ -13,11 +13,23 @@
     
 .NOTES
     File Name : AutoLockdown.ps1
-    Version   : 4.7.0
+    Version   : 4.7.1
     Author    : Meet Gandhi (Product Security Engineer)
     Created   : February 2026
     Requires  : PowerShell 5.1+, Administrator privileges
     
+    Changelog v4.7.1:
+    - Fixed fast-path registry watcher blocking USB hubs (Class="USB"/"HUBClass"):
+      disabling a hub cut off every device on that hub, bricking all downstream ports
+    - Fixed fast-path HID class-check timing race: Windows may not yet have written
+      the "Class" registry value when the 250 ms watcher first sees a new device;
+      watcher now retries up to 5 x 100 ms before the allow/block decision and
+      allows any non-Apple trusted HID vendor whose class is still pending, preventing
+      keyboards (VID_0461, VID_0D62, etc.) from being incorrectly blocked
+    - Expanded HID_REGISTRY_CLASSES to include "Bluetooth" so trusted Bluetooth
+      vendors (VID_8087 Intel, VID_0A5C Broadcom, VID_0A12 CSR) in the HID vendor
+      list are allowed rather than blocked
+
     Changelog v4.7.0:
     - Added fast-path registry watcher runspace (250 ms polling) that detects and
       blocks unauthorized USB devices the instant the OS writes their registry entry,
@@ -102,7 +114,7 @@ if (-not $Monitor) {
 # Encryption Scope (LocalMachine allows authorized admins/SYSTEM to decrypt)
 $DPAPI_SCOPE = [System.Security.Cryptography.DataProtectionScope]::LocalMachine
 
-$ScriptVersion = "4.7.0"
+$ScriptVersion = "4.7.1"
 $ProductName = "AutoLockdown"
 
 
@@ -1572,7 +1584,7 @@ function Start-RegistryWatcher {
         $DPAPI_SCOPE = [System.Security.Cryptography.DataProtectionScope]::LocalMachine
 
         # Registry-friendly HID class names set early by Windows
-        $HID_REGISTRY_CLASSES = @("HIDClass", "HID", "Keyboard", "Mouse", "Human Interface Device")
+        $HID_REGISTRY_CLASSES = @("HIDClass", "HID", "Keyboard", "Mouse", "Human Interface Device", "Bluetooth")
 
         $knownInstanceIds = [System.Collections.Generic.HashSet[string]]::new(
             [System.StringComparer]::OrdinalIgnoreCase)
@@ -1679,6 +1691,14 @@ function Start-RegistryWatcher {
                             $regClass = (Get-ItemProperty $instanceKey.PSPath -Name "Class" -ErrorAction SilentlyContinue).Class
                         } catch {}
 
+                        # --- Allow USB infrastructure by registry class (hubs, root hubs) ---
+                        # Blocking a USB hub disables every downstream port on that hub, which
+                        # can render all connected devices unreachable ("bricks" the system).
+                        if ($regClass -and ($regClass -eq "USB" -or $regClass -eq "HUBClass")) {
+                            Write-WatcherLog "ALLOWED $vidpid - USB hub/infrastructure (class: $regClass)" -Level "SUCCESS"
+                            continue
+                        }
+
                         $isHIDVendor = $false
                         foreach ($vendor in $HIDVendors) {
                             if ($idUpper -match [regex]::Escape($vendor.ToUpper())) { $isHIDVendor = $true; break }
@@ -1687,9 +1707,30 @@ function Start-RegistryWatcher {
                             Write-WatcherLog "ALLOWED $vidpid - Trusted HID vendor" -Level "SUCCESS"
                             continue
                         }
+                        # If vendor is in the HID list but Class is not yet set (device still
+                        # enumerating), retry briefly to give Windows time to populate the value.
+                        if ($isHIDVendor -and (-not $regClass)) {
+                            for ($classWait = 0; $classWait -lt 5 -and (-not $regClass); $classWait++) {
+                                Start-Sleep -Milliseconds 100
+                                try {
+                                    $regClass = (Get-ItemProperty $instanceKey.PSPath -Name "Class" -ErrorAction SilentlyContinue).Class
+                                } catch {}
+                            }
+                            if ($regClass -and $HID_REGISTRY_CLASSES -contains $regClass) {
+                                Write-WatcherLog "ALLOWED $vidpid - Trusted HID vendor" -Level "SUCCESS"
+                                continue
+                            }
+                            # Class still absent after retries: allow any non-Apple HID vendor.
+                            # Apple (VID_05AC) can present as "Image" or "WPD" for iPhones/iPads
+                            # so those must fall through to the whitelist/block decision.
+                            if ($idUpper -notmatch 'VID_05AC') {
+                                Write-WatcherLog "ALLOWED $vidpid - Trusted HID vendor (class pending)" -Level "SUCCESS"
+                                continue
+                            }
+                        }
                         # If vendor is in the HID list but:
-                        #   - Class value is not yet set (device still enumerating), OR
-                        #   - Class is non-HID (e.g. Apple iPhone: VID_05AC, class=Image/WPD)
+                        #   - Class is non-HID (e.g. Apple iPhone: VID_05AC, class=Image/WPD), OR
+                        #   - Apple device with class still unset
                         # fall through to the whitelist/block decision.
 
                         # --- Check learning mode ---
