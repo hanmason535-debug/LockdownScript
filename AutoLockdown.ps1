@@ -1827,9 +1827,31 @@ function Start-RealtimeMonitoring {
             if (-not $fullDev) { return }
             
             # Fast-path dedup: if the registry watcher already disabled this device,
-            # skip all further processing to avoid redundant log entries.
+            # check whether it is a trusted HID (keyboard/mouse) that was blocked by the
+            # race condition where fast-path fired before Windows wrote the "Class" registry
+            # value.  In that case re-enable the device so keyboards/mice are never
+            # permanently blocked regardless of which USB port (USB-A or USB-C) they use.
+            # Known-threat devices are never re-enabled even if they advertise a HID class.
             if ($fullDev.Status -eq "Error") {
-                Add-Content -Path $data.LogPath -Value "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] [INFO] [WMI] Already blocked by fast-path: $($fullDev.FriendlyName)" -Force
+                $ts = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+                $hidVendorsFast = @()
+                try { if (Test-Path $data.HIDVendorsPath) { $hidDF = Get-Content $data.HIDVendorsPath -Raw | ConvertFrom-Json; $hidVendorsFast = $hidDF.Vendors } } catch {}
+                $threatsFast = @{}
+                try { if (Test-Path $data.ThreatDBPath) { $thrDF = Get-Content $data.ThreatDBPath -Raw | ConvertFrom-Json; $threatsFast = $thrDF.Threats } } catch {}
+                $isThreatFast = $false
+                if ($threatsFast -is [hashtable]) { if ($threatsFast.ContainsKey($vidpid)) { $isThreatFast = $true } }
+                else { $prop = $threatsFast.PSObject.Properties.Match($vidpid); if ($prop.Count -gt 0) { $isThreatFast = $true } }
+                if (-not $isThreatFast -and $fullDev.Class -in @("Keyboard", "Mouse", "HIDClass")) {
+                    $idUpper = $deviceId.ToUpper()
+                    foreach ($vendor in $hidVendorsFast) {
+                        if ($idUpper -match [regex]::Escape($vendor)) {
+                            Enable-PnpDevice -InstanceId $deviceId -Confirm:$false -ErrorAction SilentlyContinue
+                            Add-Content -Path $data.LogPath -Value "[$ts] [SUCCESS] RE-ENABLED $($fullDev.FriendlyName) - Trusted HID (fast-path race-condition recovery)" -Force
+                            return
+                        }
+                    }
+                }
+                Add-Content -Path $data.LogPath -Value "[$ts] [INFO] [WMI] Already blocked by fast-path: $($fullDev.FriendlyName)" -Force
                 return
             }
 

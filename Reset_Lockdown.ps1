@@ -1,13 +1,13 @@
 <#
 .SYNOPSIS
-    Reset_Lockdown.ps1 v4.6.0 - AutoLockdown System Reset & Cleanup
+    Reset_Lockdown.ps1 v4.7.0 - AutoLockdown System Reset & Cleanup
 .DESCRIPTION
     Safely removes all AutoLockdown components and restores the system
     to its pre-deployment state. Creates backup before removal.
     
 .NOTES
     File Name : Reset_Lockdown.ps1
-    Version   : 4.6.0
+    Version   : 4.7.0
     Author    : Meet Gandhi (Product Security Engineer)
     Created   : February 2026
     Requires  : PowerShell 5.1+, Administrator privileges
@@ -37,7 +37,7 @@ param(
     [switch]$Interactive
 )
 
-$ScriptVersion = "4.6.0"
+$ScriptVersion = "4.7.0"
 $ProductName = "AutoLockdown"
 
 # Load assemblies for GUI
