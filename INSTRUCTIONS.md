@@ -1,5 +1,5 @@
 # AutoLockdown Field Deployment Guide
-**Version 4.7.0** | Created by: Meet Gandhi (Product Security Engineer)
+**Version 4.8.0** | Created by: Meet Gandhi (Product Security Engineer)
 
 ---
 
@@ -32,7 +32,7 @@ AutoLockdown is an enterprise USB security hardening suite for Intel NUC systems
 2. **Enforcement Mode** (after learning expires) — Blocks all unauthorized USB devices, allows only whitelisted ones
 3. **Fast-Path Blocking** — A registry watcher polls `HKLM:\SYSTEM\CurrentControlSet\Enum\USB` every 250 ms and disables unknown devices **before the OS can load any driver**, including iOS (Apple MTP) and Android (MTP/PTP) storage interfaces. Standard USB storage is blocked in under 500 ms; iOS/Android internal storage is blocked before Apple/Android drivers install (preventing the 30–40 second window seen without this layer).
 4. **HID Protection** — Always allows trusted keyboard/mouse vendors (~93 vendors); uses the registry device Class value to correctly reject non-HID devices sharing a HID vendor ID (e.g. iPhones use Apple `VID_05AC` but class `Image`/`WPD`, not `HIDClass`)
-5. **Infrastructure Bypass** — FTDI relay antennas and JAC 5G dongles are never blocked
+5. **Infrastructure Bypass** — FTDI relay antennas and JAC 5G dongles are never blocked. The suite also learns the exact physical USB port (via `ContainerId`) of JAC dongles, ensuring temporary "mode-switched" modem/RNDIS nodes from the same dongle are instantly allowed.
 6. **Threat Detection** — Blocks known attack devices (Rubber Ducky, Bash Bunny, O.MG Cable, etc.)
 
 ---
@@ -257,6 +257,7 @@ AutoLockdown creates **10 files** in `C:\ProgramData\AutoLockdown\`:
 | `Learning_State.json` | Current mode and learning window expiry | ✅ DPAPI |
 | `Deployment_Meta.json` | Deployment timestamp and machine info | No |
 | `System_Backup.json` | Pre-deployment system state backup | No |
+| `ContainerAllowCache.json` | Caches ContainerId GUIDs of JAC dongles for mode-switching bypass | No |
 | `Trusted_HID.json` | Trusted keyboard/mouse vendor IDs (~93 vendors) | No |
 | `monitor.lock` | Lock file indicating monitor is running (contains PID) | No |
 
@@ -286,6 +287,7 @@ AutoLockdown creates **10 files** in `C:\ProgramData\AutoLockdown\`:
 | Network adapter blocked | Must be connected during init. Run `.\Reset_Lockdown.ps1` → re-initialize |
 | Keyboard/mouse blocked | Should not happen (93 HID vendors are auto-allowed). If it does, reboot and re-initialize |
 | iOS/Android device not blocked quickly | Requires v4.7.0+ (fast-path watcher). Run `.\Verify_Lockdown.ps1` — check "Fast-Path Watcher: PASS". If WARN, re-initialize to deploy the updated script. |
+| JAC dongle child devnodes blocked | Requires v4.8.0+. Ensure the dongle successfully seeded its ContainerId (check Security.log for a "Seeded Jac ContainerId" entry). |
 | Need to remove AutoLockdown | Run `.\Reset_Lockdown.ps1` → Reboot |
 | Add a device after deployment | First try: `.\AutoLockdown.ps1 -AddDevice -DeviceVidPid "VID_XXXX&PID_YYYY" -DeviceName "My Device"`. If that fails: Reset → Connect device → Re-initialize |
 | Quick re-deploy (keep whitelist) | Run `.\Reset_Lockdown.ps1 -KeepWhitelist` → Re-initialize |
@@ -348,4 +350,4 @@ Before leaving site, confirm all boxes:
 
 ---
 
-*AutoLockdown v4.7.0 — Enterprise USB Security Hardening Suite*
+*AutoLockdown v4.8.0 — Enterprise USB Security Hardening Suite*

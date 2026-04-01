@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    AutoLockdown v4.7.1 - Enterprise USB Security Hardening Suite
+    AutoLockdown v4.8.0 - Enterprise USB Security Hardening Suite
 .DESCRIPTION
     Production-grade USB security enforcement with intelligent learning mode,
     threat detection, and comprehensive monitoring capabilities.
@@ -13,11 +13,25 @@
     
 .NOTES
     File Name : AutoLockdown.ps1
-    Version   : 4.7.1
+    Version   : 4.8.0
     Author    : Meet Gandhi (Product Security Engineer)
-    Created   : February 2026
+    Created   : April 2026
     Requires  : PowerShell 5.1+, Administrator privileges
     
+    Changelog v4.8.0:
+    - Fixed boot-time blocking of JAC dongle modems by evaluating ContainerId during startup scan.
+    - Mitigated JSON file corruption race condition by introducing Mutex locking and fallback .bak1/.bak2 save routines for ContainerAllowCache.json.
+    - Implemented container-based allow for JAC 5G dongle (VID_322B) mode-switching:
+      after the dongle's mass-storage identity is trusted, its DEVPKEY_Device_ContainerId
+      (a Windows-assigned GUID grouping all devnodes of the same physical USB device) is
+      recorded in a persistent allow cache (ContainerAllowCache.json, 24-hour TTL).
+      Any subsequent devnode sharing that ContainerId (composite device, RNDIS/MBIM modem
+      interface, CDC serial, etc.) is automatically allowed without needing to pre-know
+      the modem-mode VID/PID.
+    - Cache is shared across fast-path registry watcher, WMI handler, and Protect-USBDevice
+      via the persisted JSON file; in-memory copy maintained in the watcher runspace for
+      zero-latency lookups.
+
     Changelog v4.7.1:
     - Fixed fast-path registry watcher blocking USB hubs (Class="USB"/"HUBClass"):
       disabling a hub cut off every device on that hub, bricking all downstream ports
@@ -123,7 +137,7 @@ if (-not $Monitor) {
 # Encryption Scope (LocalMachine allows authorized admins/SYSTEM to decrypt)
 $DPAPI_SCOPE = [System.Security.Cryptography.DataProtectionScope]::LocalMachine
 
-$ScriptVersion = "4.7.1"
+$ScriptVersion = "4.8.0"
 $ProductName = "AutoLockdown"
 
 
@@ -163,6 +177,7 @@ $LearningFile = Join-Path $BasePath "Learning_State.json"
 $DeployedScript = Join-Path $BasePath "AutoLockdown.ps1"
 $HIDVendorsFile = Join-Path $BasePath "Trusted_HID.json"
 $EmergencyBypassFile = Join-Path $BasePath "EMERGENCY_BYPASS"
+$ContainerAllowCacheFile = Join-Path $BasePath "ContainerAllowCache.json"
 
 # Configuration
 $MaxLogSizeMB = 50
@@ -170,6 +185,9 @@ $MaxLogFiles = 5
 $MaxWhitelistDevices = 100
 $MutexTimeout = 30000
 $MinDiskSpaceMB = 10
+$CONTAINER_ALLOW_TTL_HOURS = 24
+# GUID validation pattern shared by all enforcement paths
+$CONTAINER_ID_GUID_PATTERN = '^\{[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\}$'
 
 # Script state
 $script:StartTime = Get-Date
@@ -1655,6 +1673,80 @@ function Start-RegistryWatcher {
             } catch { return $false }
         }
 
+        # ---------------------------------------------------------------------------
+        # Container-based allow cache (in-memory + disk, keyed by ContainerId GUID)
+        # Used to allow mode-switched devnodes that share the same physical device
+        # ContainerId as a trusted VID_322B seed device.
+        # ---------------------------------------------------------------------------
+        # In-memory: hashtable ContainerId (uppercase) -> expiry DateTime
+        $containerCache = @{}
+
+        function Test-ValidContainerGuid {
+            param([string]$Id)
+            if (-not $Id) { return $false }
+            return $Id -match $ContainerGuidPattern
+        }
+
+        function Load-ContainerCacheFast {
+            $attempts = @($ContainerAllowCachePath, "$ContainerAllowCachePath.bak1", "$ContainerAllowCachePath.bak2")
+            $mutex = New-Object System.Threading.Mutex($false, "Global\AutoLockdown_ContainerCache")
+            try {
+                if ($mutex.WaitOne(5000)) {
+                    foreach ($file in $attempts) {
+                        if (Test-Path $file) {
+                            try {
+                                $raw = Get-Content $file -Raw -Encoding UTF8
+                                $data = $raw | ConvertFrom-Json
+                                $containerCache.Clear()
+                                foreach ($c in $data.Containers) {
+                                    $exp = [DateTime]::Parse($c.Expires)
+                                    if ($c.ExpiresUTC) { $exp = $exp.ToLocalTime() }
+                                    $containerCache[$c.ContainerId.ToUpper()] = $exp
+                                }
+                                return
+                            } catch { Write-WatcherLog "ContainerAllow: cache load error from $file" -Level "WARNING" }
+                        }
+                    }
+                }
+            } catch {} finally { try { $mutex.ReleaseMutex() } catch {} finally { $mutex.Dispose() } }
+        }
+
+        function Add-ContainerToCache {
+            param([string]$ContainerId, [string]$SeedInstanceId)
+            $now = Get-Date
+            $exp = $now.AddHours($ContainerAllowTTLHours)
+            $cidUpper = $ContainerId.ToUpper()
+            $containerCache[$cidUpper] = $exp
+            Write-WatcherLog "Seeded Jac ContainerId $cidUpper from seed $SeedInstanceId" -Level "SUCCESS"
+            
+            $mutex = New-Object System.Threading.Mutex($false, "Global\AutoLockdown_ContainerCache")
+            try {
+                if ($mutex.WaitOne(5000)) {
+                    $entries = @()
+                    foreach ($k in $containerCache.Keys) {
+                        if ($containerCache[$k] -gt $now) {
+                            $entries += @{
+                                ContainerId = $k
+                                Expires = $containerCache[$k].ToUniversalTime().ToString("o")
+                                ExpiresUTC = $true
+                            }
+                        }
+                    }
+                    $wrap = @{ Containers = $entries }
+                    $json = $wrap | ConvertTo-Json -Depth 3
+                    
+                    if (Test-Path $ContainerAllowCachePath) {
+                        if (Test-Path "$ContainerAllowCachePath.bak1") { Copy-Item "$ContainerAllowCachePath.bak1" "$ContainerAllowCachePath.bak2" -Force -ErrorAction SilentlyContinue }
+                        Copy-Item $ContainerAllowCachePath "$ContainerAllowCachePath.bak1" -Force -ErrorAction SilentlyContinue
+                    }
+                    $json | Out-File $ContainerAllowCachePath -Force -Encoding UTF8
+                }
+            } catch {} finally { try { $mutex.ReleaseMutex() } catch {} finally { $mutex.Dispose() } }
+        }
+
+        # Initial load
+        Load-ContainerCacheFast
+
         $usbEnumPath = "HKLM:\SYSTEM\CurrentControlSet\Enum\USB"
 
         while ($true) {
@@ -1698,7 +1790,25 @@ function Start-RegistryWatcher {
                         foreach ($vendor in $AlwaysAllowedVendors) {
                             if ($idUpper -match [regex]::Escape($vendor.ToUpper())) { $isInfra = $true; break }
                         }
-                        if ($isInfra) { Write-WatcherLog "ALLOWED $vidpid - Infrastructure" -Level "SUCCESS"; continue }
+                        if ($isInfra) {
+                            Write-WatcherLog "ALLOWED $vidpid - Infrastructure" -Level "SUCCESS"
+                            # Seed the container allow cache when a trusted VID_322B device is seen
+                            # so that its mode-switched modem devnodes (different VID/PID, same
+                            # physical device ContainerId) are automatically allowed below.
+                            if ($instanceId -imatch '^USB\\VID_322B') {
+                                try {
+                                    $cidRaw = (Get-ItemProperty $instanceKey.PSPath -ErrorAction SilentlyContinue).ContainerID
+                                    if ($cidRaw -and (Test-ValidContainerGuid $cidRaw)) {
+                                        Add-ContainerToCache -ContainerId $cidRaw -SeedInstanceId $instanceId
+                                    } else {
+                                        Write-WatcherLog "ContainerAllow: ContainerId unavailable for $instanceId (not seeded)" -Level "INFO"
+                                    }
+                                } catch {
+                                    Write-WatcherLog "ContainerAllow: error reading ContainerId for $instanceId : $_" -Level "INFO"
+                                }
+                            }
+                            continue
+                        }
 
                         # --- Check trusted HID vendors with registry-class guard ---
                         # Read the "Class" and "ClassGUID" values written early by Windows
@@ -1762,6 +1872,19 @@ function Start-RegistryWatcher {
                         #   - Class is non-HID (e.g. Apple iPhone: VID_05AC, class=Image/WPD), OR
                         #   - Apple device with class still unset
                         # fall through to the whitelist/block decision.
+
+                        # --- Check container allow cache ---
+                        $cidRaw2 = $null
+                        try { $cidRaw2 = (Get-ItemProperty $instanceKey.PSPath -ErrorAction SilentlyContinue).ContainerID } catch {}
+                        if ($cidRaw2 -and (Test-ValidContainerGuid $cidRaw2)) {
+                            $cidUpper2 = $cidRaw2.ToUpper()
+                            # Periodically reload cache from disk
+                            Load-ContainerCacheFast
+                            if ($containerCache.ContainsKey($cidUpper2) -and $containerCache[$cidUpper2] -gt (Get-Date)) {
+                                Write-WatcherLog "ALLOWED $vidpid - ContainerId match ($cidUpper2)" -Level "SUCCESS"
+                                continue
+                            }
+                        }
 
                         # --- Check learning mode ---
                         if (Get-LearningActiveFast) {
@@ -1868,12 +1991,15 @@ function Start-RealtimeMonitoring {
     # 250 ms and blocks unknown devices before any driver can bind.
     Write-LogMessage "Starting fast-path registry watcher (250 ms)..." -Level "INFO"
     $watcherConfig = @{
-        LogPath             = $LogFile
-        USBWhitelistPath    = $USBWhitelist
-        LearningFilePath    = $LearningFile
-        EmergencyBypassPath = $EmergencyBypassFile
-        AlwaysAllowedVendors = $ALWAYS_ALLOWED_USB_VENDORS
-        HIDVendors          = if ($script:HIDVendors.Count -gt 0) { $script:HIDVendors } else { $TRUSTED_HID_VENDORS }
+        LogPath                 = $LogFile
+        USBWhitelistPath        = $USBWhitelist
+        LearningFilePath        = $LearningFile
+        EmergencyBypassPath     = $EmergencyBypassFile
+        AlwaysAllowedVendors    = $ALWAYS_ALLOWED_USB_VENDORS
+        HIDVendors              = if ($script:HIDVendors.Count -gt 0) { $script:HIDVendors } else { $TRUSTED_HID_VENDORS }
+        ContainerAllowCachePath = $ContainerAllowCacheFile
+        ContainerAllowTTLHours  = $CONTAINER_ALLOW_TTL_HOURS
+        ContainerGuidPattern    = $CONTAINER_ID_GUID_PATTERN
     }
     $script:RegWatcher = Start-RegistryWatcher -Config $watcherConfig
     Write-LogMessage "Fast-path registry watcher started" -Level "SUCCESS"
@@ -1883,7 +2009,7 @@ function Start-RealtimeMonitoring {
     # WITHIN 1: secondary catch-all fires every 1 s (after Win32_PnPEntity exists,
     # i.e. after driver install); the registry watcher above handles pre-driver blocking.
     $query = "SELECT * FROM __InstanceCreationEvent WITHIN 1 WHERE TargetInstance ISA 'Win32_PnPEntity' AND TargetInstance.DeviceID LIKE 'USB\\VID%'"
-    $messageData = @{ LogPath = $LogFile; USBWhitelistPath = $USBWhitelist; ThreatDBPath = $ThreatDBFile; HIDVendorsPath = $HIDVendorsFile; LearningFilePath = $LearningFile; BasePath = $BasePath; ScriptAuthor = $ScriptAuthor; ScriptVersion = $ScriptVersion; MaxWhitelistDevices = $MaxWhitelistDevices; MutexTimeout = $MutexTimeout; AlwaysAllowedVendors = $ALWAYS_ALLOWED_USB_VENDORS; EmergencyBypassPath = $EmergencyBypassFile }
+    $messageData = @{ LogPath = $LogFile; USBWhitelistPath = $USBWhitelist; ThreatDBPath = $ThreatDBFile; HIDVendorsPath = $HIDVendorsFile; LearningFilePath = $LearningFile; BasePath = $BasePath; ScriptAuthor = $ScriptAuthor; ScriptVersion = $ScriptVersion; MaxWhitelistDevices = $MaxWhitelistDevices; MutexTimeout = $MutexTimeout; AlwaysAllowedVendors = $ALWAYS_ALLOWED_USB_VENDORS; EmergencyBypassPath = $EmergencyBypassFile; ContainerAllowCachePath = $ContainerAllowCacheFile; ContainerAllowTTLHours = $CONTAINER_ALLOW_TTL_HOURS; ContainerGuidPattern = $CONTAINER_ID_GUID_PATTERN }
     
     Register-WmiEvent -Query $query -SourceIdentifier "AutoLockdown_USBWatch" -MessageData $messageData -Action {
         $data = $Event.MessageData
@@ -1942,12 +2068,101 @@ function Start-RealtimeMonitoring {
             
             # Check always-allowed infrastructure devices from messageData
             $idUpper = $deviceId.ToUpper()
+            $isWmiInfra = $false
             foreach ($alVendor in $data.AlwaysAllowedVendors) {
                 if ($idUpper -match [regex]::Escape($alVendor)) {
-                    Add-Content -Path $data.LogPath -Value "[$ts] [SUCCESS] ALLOWED $($fullDev.FriendlyName) - Infrastructure device" -Force
-                    return
+                    $isWmiInfra = $true; break
                 }
             }
+            if ($isWmiInfra) {
+                Add-Content -Path $data.LogPath -Value "[$ts] [SUCCESS] ALLOWED $($fullDev.FriendlyName) - Infrastructure device" -Force
+                # Seed container allow cache when a VID_322B device is seen via WMI
+                if ($deviceId -imatch '^USB\\VID_322B') {
+                    try {
+                        $cidProp = Get-PnpDeviceProperty -InstanceId $deviceId -KeyName "DEVPKEY_Device_ContainerId" -ErrorAction SilentlyContinue
+                        $cidVal  = if ($cidProp) { $cidProp.Data } else { $null }
+                        $cidStr  = if ($cidVal -is [System.Guid]) { "{$cidVal}" } elseif ($cidVal) { $cidVal.ToString() } else { $null }
+                        if ($cidStr -and $cidStr -match $data.ContainerGuidPattern) {
+                            $cidUpper = $cidStr.ToUpper()
+                            $now = Get-Date
+                            $mutex = New-Object System.Threading.Mutex($false, "Global\AutoLockdown_ContainerCache")
+                            try {
+                                if ($mutex.WaitOne($data.MutexTimeout)) {
+                                    $cacheEntries = @()
+                                    if (Test-Path $data.ContainerAllowCachePath) {
+                                        $attempts = @($data.ContainerAllowCachePath, "$($data.ContainerAllowCachePath).bak1", "$($data.ContainerAllowCachePath).bak2")
+                                        foreach ($f in $attempts) {
+                                            if (Test-Path $f) {
+                                                try { $cacheEntries = @((Get-Content $f -Raw -Encoding UTF8 | ConvertFrom-Json).Containers); break } catch {}
+                                            }
+                                        }
+                                    }
+
+                                    # Keep non-expired entries, unless it's our newly seeded ContainerId
+                                    $updated = @(); $found = $false
+                                    $expNew = $now.AddHours($data.ContainerAllowTTLHours)
+                                    foreach ($e in $cacheEntries) {
+                                        $entryExp = [DateTime]::Parse($e.Expires)
+                                        if ($e.ExpiresUTC) { $entryExp = $entryExp.ToLocalTime() }
+                                        if ($entryExp -gt $now -and $e.ContainerId -ne $cidUpper) { $updated += $e }
+                                        if ($e.ContainerId -eq $cidUpper) { $found = $true }
+                                    }
+                                    $updated += @{
+                                        ContainerId = $cidUpper
+                                        Expires = $expNew.ToUniversalTime().ToString("o")
+                                        ExpiresUTC = $true
+                                    }
+                                    $json = @{ Containers = $updated } | ConvertTo-Json -Depth 3
+                                    if (Test-Path $data.ContainerAllowCachePath) {
+                                        if (Test-Path "$($data.ContainerAllowCachePath).bak1") { Copy-Item "$($data.ContainerAllowCachePath).bak1" "$($data.ContainerAllowCachePath).bak2" -Force -ErrorAction SilentlyContinue }
+                                        Copy-Item $data.ContainerAllowCachePath "$($data.ContainerAllowCachePath).bak1" -Force -ErrorAction SilentlyContinue
+                                    }
+                                    $json | Out-File $data.ContainerAllowCachePath -Force -Encoding UTF8
+                                    Add-Content -Path $data.LogPath -Value "[$ts] [SUCCESS] Seeded Jac ContainerId $cidUpper from seed $deviceId via WMI" -Force
+                                }
+                            } catch {} finally { try { $mutex.ReleaseMutex() } catch {} finally { $mutex.Dispose() } }
+                        }
+                    } catch {}
+                }
+                return
+            }
+
+            # Check container cache before checking whitelist
+            try {
+                if (Test-Path $data.ContainerAllowCachePath) {
+                    $cidProp2 = Get-PnpDeviceProperty -InstanceId $deviceId -KeyName "DEVPKEY_Device_ContainerId" -ErrorAction SilentlyContinue
+                    $cidVal2  = if ($cidProp2) { $cidProp2.Data } else { $null }
+                    $cidStr2  = if ($cidVal2 -is [System.Guid]) { "{$cidVal2}" } elseif ($cidVal2) { $cidVal2.ToString() } else { $null }
+                    if ($cidStr2 -and $cidStr2 -match $data.ContainerGuidPattern) {
+                        $mutex = New-Object System.Threading.Mutex($false, "Global\AutoLockdown_ContainerCache")
+                        try {
+                            if ($mutex.WaitOne($data.MutexTimeout)) {
+                                $cacheRead = $null
+                                $attempts = @($data.ContainerAllowCachePath, "$($data.ContainerAllowCachePath).bak1", "$($data.ContainerAllowCachePath).bak2")
+                                foreach ($f in $attempts) {
+                                    if (Test-Path $f) {
+                                        try { $cacheRead = Get-Content $f -Raw -Encoding UTF8 | ConvertFrom-Json; break } catch {}
+                                    }
+                                }
+                                if ($cacheRead) {
+                                    $cidUpper2 = $cidStr2.ToUpper()
+                                    $now = Get-Date
+                                    foreach ($c in $cacheRead.Containers) {
+                                        if ($c.ContainerId -eq $cidUpper2) {
+                                            $expCache = [DateTime]::Parse($c.Expires)
+                                            if ($c.ExpiresUTC) { $expCache = $expCache.ToLocalTime() }
+                                            if ($expCache -gt $now) {
+                                                Add-Content -Path $data.LogPath -Value "[$ts] [SUCCESS] ALLOWED $($fullDev.FriendlyName) - ContainerId match ($cidUpper2)" -Force
+                                                return
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        } catch {} finally { try { $mutex.ReleaseMutex() } catch {} finally { $mutex.Dispose() } }
+                    }
+                }
+            } catch {}
             
             if ($whitelist -contains $vidpid) { Add-Content -Path $data.LogPath -Value "[$ts] [SUCCESS] ALLOWED $($fullDev.FriendlyName) - Whitelisted" -Force; return }
             # Handle PSCustomObject from JSON (not hashtable) with null-safe access
@@ -2048,7 +2263,94 @@ function Protect-USBDevice {
     if (-not $IsStartup -and (-not $Device.Class -or $Device.Status -eq "Unknown")) { for ($i = 0; $i -lt 20; $i++) { Start-Sleep -Milliseconds 500; $Device = Get-PnpDevice -InstanceId $Device.InstanceId -ErrorAction SilentlyContinue; if ($Device -and $Device.Class -and $Device.Status -ne "Unknown") { break } } }
     if (($Device.Class -eq "Keyboard" -or $Device.Class -eq "Mouse" -or $Device.Class -eq "HIDClass") -and (Test-TrustedHIDVendor -InstanceId $Device.InstanceId)) { Write-LogMessage "ALLOWED $($Device.FriendlyName) - Trusted HID" -Level "SUCCESS"; $script:Metrics.TotalAllowed++; return }
     # Check for always-allowed infrastructure devices (FTDI relay, JAC 5G dongle)
-    if (Test-AlwaysAllowedUSB -InstanceId $Device.InstanceId) { Write-LogMessage "ALLOWED $($Device.FriendlyName) - Infrastructure" -Level "SUCCESS"; $script:Metrics.TotalAllowed++; return }
+    if (Test-AlwaysAllowedUSB -InstanceId $Device.InstanceId) {
+        Write-LogMessage "ALLOWED $($Device.FriendlyName) - Infrastructure" -Level "SUCCESS"
+        $script:Metrics.TotalAllowed++
+        # Seed container allow cache when a VID_322B device is seen
+        if ($Device.InstanceId -imatch '^USB\\VID_322B') {
+            try {
+                $cidProp = Get-PnpDeviceProperty -InstanceId $Device.InstanceId -KeyName "DEVPKEY_Device_ContainerId" -ErrorAction SilentlyContinue
+                $cidVal  = if ($cidProp) { $cidProp.Data } else { $null }
+                $cidStr  = if ($cidVal -is [System.Guid]) { "{$cidVal}" } elseif ($cidVal) { $cidVal.ToString() } else { $null }
+                if ($cidStr -and $cidStr -match $CONTAINER_ID_GUID_PATTERN) {
+                    $cidUpper = $cidStr.ToUpper()
+                    $now = Get-Date
+                    $mutex = New-Object System.Threading.Mutex($false, "Global\AutoLockdown_ContainerCache")
+                    try {
+                        if ($mutex.WaitOne($MutexTimeout)) {
+                            $cacheEntries = @()
+                            if (Test-Path $ContainerAllowCacheFile) {
+                                $attempts = @($ContainerAllowCacheFile, "$ContainerAllowCacheFile.bak1", "$ContainerAllowCacheFile.bak2")
+                                foreach ($f in $attempts) {
+                                    if (Test-Path $f) {
+                                        try { $cacheEntries = @((Get-Content $f -Raw -Encoding UTF8 | ConvertFrom-Json).Containers); break } catch {}
+                                    }
+                                }
+                            }
+
+                            # Keep non-expired entries, unless it's our newly seeded ContainerId
+                            $updated = @(); $found = $false
+                            $expNew = $now.AddHours($CONTAINER_ALLOW_TTL_HOURS)
+                            foreach ($e in $cacheEntries) {
+                                $entryExp = [DateTime]::Parse($e.Expires)
+                                if ($e.ExpiresUTC) { $entryExp = $entryExp.ToLocalTime() }
+                                if ($entryExp -gt $now -and $e.ContainerId -ne $cidUpper) { $updated += $e }
+                                if ($e.ContainerId -eq $cidUpper) { $found = $true }
+                            }
+                            $updated += @{
+                                ContainerId = $cidUpper
+                                Expires = $expNew.ToUniversalTime().ToString("o")
+                                ExpiresUTC = $true
+                            }
+                            $json = @{ Containers = $updated } | ConvertTo-Json -Depth 3
+                            if (Test-Path $ContainerAllowCacheFile) {
+                                if (Test-Path "$ContainerAllowCacheFile.bak1") { Copy-Item "$ContainerAllowCacheFile.bak1" "$ContainerAllowCacheFile.bak2" -Force -ErrorAction SilentlyContinue }
+                                Copy-Item $ContainerAllowCacheFile "$ContainerAllowCacheFile.bak1" -Force -ErrorAction SilentlyContinue
+                            }
+                            $json | Out-File $ContainerAllowCacheFile -Force -Encoding UTF8
+                            Write-LogMessage "Seeded Jac ContainerId $cidUpper from seed $($Device.InstanceId)" -Level "SUCCESS"
+                        }
+                    } catch {} finally { try { $mutex.ReleaseMutex() } catch {} finally { $mutex.Dispose() } }
+                }
+            } catch {}
+        }
+        return
+    }
+
+    # Check container allow cache before denylist/whitelist
+    try {
+        $cidPropD = Get-PnpDeviceProperty -InstanceId $Device.InstanceId -KeyName "DEVPKEY_Device_ContainerId" -ErrorAction SilentlyContinue
+        $cidValD  = if ($cidPropD) { $cidPropD.Data } else { $null }
+        $cidStrD  = if ($cidValD -is [System.Guid]) { "{$cidValD}" } elseif ($cidValD) { $cidValD.ToString() } else { $null }
+        if ($cidStrD -and $cidStrD -match $CONTAINER_ID_GUID_PATTERN) {
+            $mutex = New-Object System.Threading.Mutex($false, "Global\AutoLockdown_ContainerCache")
+            try {
+                if ($mutex.WaitOne($MutexTimeout)) {
+                    $cacheReadD = $null
+                    $attempts = @($ContainerAllowCacheFile, "$ContainerAllowCacheFile.bak1", "$ContainerAllowCacheFile.bak2")
+                    foreach ($f in $attempts) {
+                        if (Test-Path $f) {
+                            try { $cacheReadD = Get-Content $f -Raw -Encoding UTF8 | ConvertFrom-Json; break } catch {}
+                        }
+                    }
+                    if ($cacheReadD) {
+                        $cidUpperD = $cidStrD.ToUpper()
+                        $now = Get-Date
+                        foreach ($c in $cacheReadD.Containers) {
+                            if ($c.ContainerId -eq $cidUpperD) {
+                                $expCacheD = [DateTime]::Parse($c.Expires)
+                                if ($c.ExpiresUTC) { $expCacheD = $expCacheD.ToLocalTime() }
+                                if ($expCacheD -gt $now) {
+                                    Write-LogMessage "ALLOWED $($Device.FriendlyName) - ContainerId match ($cidUpperD)" -Level "SUCCESS"
+                                    $script:Metrics.TotalAllowed++; return
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch {} finally { try { $mutex.ReleaseMutex() } catch {} finally { $mutex.Dispose() } }
+        }
+    } catch {}
     if ($vidpid -and $script:Whitelist -contains $vidpid) { Write-LogMessage "ALLOWED $($Device.FriendlyName) - Whitelisted" -Level "SUCCESS"; $script:Metrics.TotalAllowed++; return }
     # Handle PSCustomObject from JSON
     $threatInfo = $null

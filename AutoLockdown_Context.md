@@ -1,5 +1,5 @@
 # AutoLockdown Project Context
-**Version Reference:** v4.7.0
+**Version Reference:** v4.8.0
 **Repository:** hanmason535-debug/LockdownScript
 
 ## Overview
@@ -34,6 +34,7 @@ A strict cleanup utility that reverts the system back to its original pre-deploy
 Once deployed, AutoLockdown builds its environment primarily within `C:\ProgramData\AutoLockdown\`. Critical files include:
 - **`Security.log`:** A continuous tracking log for events, blocks, and newly learned devices. Rotates automatically at 50 MB.
 - **`USB_Whitelist.json` & `Network_Whitelist.json`:** Approved devices and adapters learned during initialization.
+- **`ContainerAllowCache.json`:** A 24-hour persistent cache storing trusted ContainerId GUIDs (used for JAC dongle mode-switching).
 - **`Learning_State.json`:** Tracks mode and timing. Protected via DPAPI encryption.
 - **`ThreatDB.json` & `Trusted_HID.json`:** Signature databases for known threats and approved vendors.
 - **`EMERGENCY_BYPASS`:** A file trigger that grants a temporary 30-minute bypass for critical physical interventions.
@@ -44,8 +45,9 @@ Allow/deny decisions are based entirely on **device class, ClassGUID, and vendor
 ### Normal Monitoring Path (`Protect-USBDevice`)
 1. Check emergency bypass → allow all.
 2. Check device Class (`Keyboard`, `Mouse`, `HIDClass`) **and** `Test-TrustedHIDVendor` → allow.
-3. Check always-allowed infrastructure (FTDI, JAC) → allow.
-4. Check USB whitelist → allow if present.
+3. Check always-allowed infrastructure (FTDI, JAC) → allow (and seed JAC ContainerId).
+4. Check ContainerId against persistent cache (`ContainerAllowCache.json`) → allow.
+5. Check USB whitelist → allow if present.
 5. Check threat database → block if matched.
 6. Learning mode → add to whitelist and allow; Enforcement mode → block.
 
@@ -58,9 +60,10 @@ Allow/deny decisions are based entirely on **device class, ClassGUID, and vendor
    - If ClassGUID matches `{4D36E96B}` (keyboard), `{4D36E96F}` (mouse), or `{745A17A0}` (HID) **and** vendor is trusted → allow.
 5. **Defer if class not yet written:** If vendor is trusted HID but neither `Class` nor `ClassGUID` exists yet (device still enumerating), re-queue for next poll instead of blocking. This prevents transient blocking of legitimate keyboards/mice before the OS writes their class. Non-HID devices (e.g., iPhones with `VID_05AC`, class `Image`/`WPD`) will have their class written within one or two polls and will correctly fall through to the block path.
 6. If class is present but non-HID → fall through to whitelist/block decision.
-7. Check learning mode → allow.
-8. Check whitelist → allow.
-9. Enforcement mode → block immediately (pre-driver).
+7. Check ContainerId against persistent cache (`ContainerAllowCache.json`) → allow.
+8. Check learning mode → allow.
+9. Check whitelist → allow.
+10. Enforcement mode → block immediately (pre-driver).
 
 ### Key Invariants
 - A device connected via USB-C through a hub or dock is enumerated identically to USB-A; Windows assigns the same class/GUID regardless of physical connector.

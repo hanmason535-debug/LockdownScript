@@ -1,15 +1,15 @@
 <#
 .SYNOPSIS
-    Verify_Lockdown.ps1 v4.7.0 - AutoLockdown Health Check & Validation
+    Verify_Lockdown.ps1 v4.8.0 - AutoLockdown Health Check & Validation
 .DESCRIPTION
     Comprehensive verification tool that validates AutoLockdown deployment,
     monitors system health, and provides detailed status reports.
     
 .NOTES
     File Name : Verify_Lockdown.ps1
-    Version   : 4.7.0
+    Version   : 4.8.0
     Author    : Meet Gandhi (Product Security Engineer)
-    Created   : February 2026
+    Created   : April 2026
     Requires  : PowerShell 5.1+, Administrator privileges
     
 .EXAMPLE
@@ -39,7 +39,7 @@ param(
     [string]$OutputPath = "C:\Reports"
 )
 
-$ScriptVersion = "4.7.0"
+$ScriptVersion = "4.8.0"
 $ProductName = "AutoLockdown"
 
 # Load assemblies
@@ -132,6 +132,7 @@ $DeployedScript = Join-Path $BasePath "AutoLockdown.ps1"
 $HIDVendorsFile = Join-Path $BasePath "Trusted_HID.json"
 $BackupFile = Join-Path $BasePath "System_Backup.json"
 $EmergencyBypassFile = Join-Path $BasePath "EMERGENCY_BYPASS"
+$ContainerAllowCacheFile = Join-Path $BasePath "ContainerAllowCache.json"
 
 # Always-Allowed USB Vendors (Infrastructure devices - bypass blocking)
 $ALWAYS_ALLOWED_USB_VENDORS = @(
@@ -624,6 +625,25 @@ function Test-InfrastructureDevices {
     }
 }
 
+function Test-ContainerAllowCache {
+    if (-not (Test-Path $ContainerAllowCacheFile)) {
+        Write-Check -Component "Container Allow Cache" -Status "INFO" -Message "Cache file not present" -Detail "Will be created when a VID_322B device connects"
+        return $true
+    }
+    
+    try {
+        $data = Get-Content $ContainerAllowCacheFile -Raw -Encoding UTF8 | ConvertFrom-Json
+        $count = if ($data.Containers) { $data.Containers.Count } else { 0 }
+        
+        Write-Check -Component "Container Allow Cache" -Status "PASS" -Message "$count allowed container(s)" -Detail "JAC 5G dongle mode-switching support"
+        return $true
+    }
+    catch {
+        Write-Check -Component "Container Allow Cache" -Status "FAIL" -Message "Error reading cache" -Detail "Error: $_"
+        return $false
+    }
+}
+
 function Test-DiskSpace {
     try {
         if (-not (Test-Path $BasePath)) {
@@ -996,6 +1016,7 @@ Test-NetworkPolicy
 Test-ThreatDatabase
 Test-BlockedDevices
 Test-InfrastructureDevices
+Test-ContainerAllowCache
 Test-HIDVendorsContent
 
 Write-Host ""

@@ -1,51 +1,51 @@
-# AutoLockdown v4.7.0 Patch Checklist
+# AutoLockdown v4.8.0 Patch Checklist
 
-This file documents every code and documentation change applied in the v4.7.0 patch, provides exact search patterns to validate each change, defines acceptance criteria, and gives rollback guidance.
+This file documents every code and documentation change applied in the v4.8.0 patch, provides exact search patterns to validate each change, defines acceptance criteria, and gives rollback guidance.
 
 ---
 
-## 1. Version Bump: 4.6.0 → 4.7.0
+## 1. Version Bump: 4.7.0 → 4.8.0
 
 ### Search Patterns (run from repo root)
 
 ```powershell
 # PowerShell / Select-String
-Select-String -Path *.ps1, *.md -Pattern "4\.6\.0"
+Select-String -Path *.ps1, *.md -Pattern "4\.7\.0"
 
 # Bash / grep
-grep -rn "4\.6\.0" .
+grep -rn "4\.7\.0" .
 ```
 
 ### Expected Findings After Patch
 
-The pattern `4\.6\.0` must return **zero** matches in the primary files.  
-The version `4.7.0` must appear in all of the following locations:
+The pattern `4\.7\.0` must return **zero** matches in the primary files.  
+The version `4.8.0` must appear in all of the following locations:
 
 | File | Location | Expected Value |
 |------|----------|----------------|
-| `AutoLockdown.ps1` | `.SYNOPSIS` line 3 | `AutoLockdown v4.7.0` |
-| `AutoLockdown.ps1` | `.NOTES` `Version` field | `4.7.0` |
-| `AutoLockdown.ps1` | `$ScriptVersion` variable | `"4.7.0"` |
-| `Reset_Lockdown.ps1` | `.SYNOPSIS` line 3 | `Reset_Lockdown.ps1 v4.7.0` |
-| `Reset_Lockdown.ps1` | `.NOTES` `Version` field | `4.7.0` |
-| `Reset_Lockdown.ps1` | `$ScriptVersion` variable | `"4.7.0"` |
-| `Verify_Lockdown.ps1` | `.SYNOPSIS` line 3 | `Verify_Lockdown.ps1 v4.7.0` |
-| `Verify_Lockdown.ps1` | `.NOTES` `Version` field | `4.7.0` |
-| `Verify_Lockdown.ps1` | `$ScriptVersion` variable | `"4.7.0"` |
-| `INSTRUCTIONS.md` | Heading `**Version X.Y.Z**` | `4.7.0` |
-| `INSTRUCTIONS.md` | Footer line | `AutoLockdown v4.7.0` |
-| `AutoLockdown_Context.md` | `**Version Reference:**` | `v4.7.0` |
+| `AutoLockdown.ps1` | `.SYNOPSIS` line 3 | `AutoLockdown v4.8.0` |
+| `AutoLockdown.ps1` | `.NOTES` `Version` field | `4.8.0` |
+| `AutoLockdown.ps1` | `$ScriptVersion` variable | `"4.8.0"` |
+| `Reset_Lockdown.ps1` | `.SYNOPSIS` line 3 | `Reset_Lockdown.ps1 v4.8.0` |
+| `Reset_Lockdown.ps1` | `.NOTES` `Version` field | `4.8.0` |
+| `Reset_Lockdown.ps1` | `$ScriptVersion` variable | `"4.8.0"` |
+| `Verify_Lockdown.ps1` | `.SYNOPSIS` line 3 | `Verify_Lockdown.ps1 v4.8.0` |
+| `Verify_Lockdown.ps1` | `.NOTES` `Version` field | `4.8.0` |
+| `Verify_Lockdown.ps1` | `$ScriptVersion` variable | `"4.8.0"` |
+| `INSTRUCTIONS.md` | Heading `**Version X.Y.Z**` | `4.8.0` |
+| `INSTRUCTIONS.md` | Footer line | `AutoLockdown v4.8.0` |
+| `AutoLockdown_Context.md` | `**Version Reference:**` | `v4.8.0` |
 
 ### Validation Commands
 
 ```powershell
-# Confirm all scripts self-report 4.7.0
+# Confirm all scripts self-report 4.8.0
 $scripts = @("AutoLockdown.ps1", "Reset_Lockdown.ps1", "Verify_Lockdown.ps1")
 foreach ($s in $scripts) {
     $ver = (Select-String -Path $s -Pattern '\$ScriptVersion\s*=\s*"([^"]+)"').Matches[0].Groups[1].Value
-    Write-Host "$s  =>  $ver" -ForegroundColor $(if ($ver -eq "4.7.0") {"Green"} else {"Red"})
+    Write-Host "$s  =>  $ver" -ForegroundColor $(if ($ver -eq "4.8.0") {"Green"} else {"Red"})
 }
-# Expected output: all three lines show "4.7.0" in green
+# Expected output: all three lines show "4.8.0" in green
 ```
 
 ---
@@ -110,10 +110,10 @@ All five commands must return at least one match.
 
 | Check | Command | Expected Output |
 |-------|---------|-----------------|
-| AutoLockdown version | `(.\AutoLockdown.ps1 -ShowStatus 2>&1)[0]` or `Select-String AutoLockdown.ps1 '\$ScriptVersion'` | `4.7.0` |
-| Reset version | `Select-String Reset_Lockdown.ps1 '\$ScriptVersion'` | `4.7.0` |
-| Verify version | `Select-String Verify_Lockdown.ps1 '\$ScriptVersion'` | `4.7.0` |
-| Fast-Path Watcher check | `.\Verify_Lockdown.ps1` | `Fast-Path Watcher: PASS … monitor v4.7.0` |
+| AutoLockdown version | `(.\AutoLockdown.ps1 -ShowStatus 2>&1)[0]` or `Select-String AutoLockdown.ps1 '\$ScriptVersion'` | `4.8.0` |
+| Reset version | `Select-String Reset_Lockdown.ps1 '\$ScriptVersion'` | `4.8.0` |
+| Verify version | `Select-String Verify_Lockdown.ps1 '\$ScriptVersion'` | `4.8.0` |
+| Fast-Path Watcher check | `.\Verify_Lockdown.ps1` | `Fast-Path Watcher: PASS … monitor v4.8.0` |
 
 ### 3.2 HID Behavior Test Matrix
 
@@ -142,8 +142,14 @@ Get-Content C:\ProgramData\AutoLockdown\Security.log -Tail 30
 # Filter for HID allow events
 Get-Content C:\ProgramData\AutoLockdown\Security.log | Where-Object { $_ -match "Trusted HID|HIDClass" }
 
-# Filter for fast-path defer events (new in 4.7.0)
+# Filter for fast-path defer events
 Get-Content C:\ProgramData\AutoLockdown\Security.log | Where-Object { $_ -match "DEFERRED" }
+
+# Filter for ContainerAllow seed events (new in 4.8.0)
+Get-Content C:\ProgramData\AutoLockdown\Security.log | Where-Object { $_ -match "Seeded Jac ContainerId" }
+
+# Filter for ContainerAllow match events (new in 4.8.0)
+Get-Content C:\ProgramData\AutoLockdown\Security.log | Where-Object { $_ -match "ContainerId match" }
 
 # Filter for block events
 Get-Content C:\ProgramData\AutoLockdown\Security.log | Where-Object { $_ -match "\[BLOCK\]" }
@@ -153,7 +159,7 @@ Get-Content C:\ProgramData\AutoLockdown\Security.log | Where-Object { $_ -match 
 
 ## 4. Post-Deploy HID Validation Steps (Operator Guide)
 
-Run these steps after deploying v4.7.0 and before leaving the site:
+Run these steps after deploying v4.8.0 and before leaving the site:
 
 1. **Run Verify_Lockdown:**
    ```powershell
@@ -182,14 +188,14 @@ Run these steps after deploying v4.7.0 and before leaving the site:
 
 If this patch needs to be reverted, apply the following changes manually or via `git revert`:
 
-### Version Rollback (4.7.0 → 4.6.0)
+### Version Rollback (4.8.0 → 4.7.0)
 
 ```powershell
 # In each file, replace version string
-(Get-Content AutoLockdown.ps1)  -replace "4\.7\.0", "4.6.0" | Set-Content AutoLockdown.ps1
-(Get-Content Reset_Lockdown.ps1) -replace "4\.7\.0", "4.6.0" | Set-Content Reset_Lockdown.ps1
-(Get-Content Verify_Lockdown.ps1) -replace "4\.7\.0", "4.6.0" | Set-Content Verify_Lockdown.ps1
-(Get-Content INSTRUCTIONS.md)   -replace "4\.7\.0", "4.6.0" | Set-Content INSTRUCTIONS.md
+(Get-Content AutoLockdown.ps1)  -replace "4\.8\.0", "4.7.0" | Set-Content AutoLockdown.ps1
+(Get-Content Reset_Lockdown.ps1) -replace "4\.8\.0", "4.7.0" | Set-Content Reset_Lockdown.ps1
+(Get-Content Verify_Lockdown.ps1) -replace "4\.8\.0", "4.7.0" | Set-Content Verify_Lockdown.ps1
+(Get-Content INSTRUCTIONS.md)   -replace "4\.8\.0", "4.7.0" | Set-Content INSTRUCTIONS.md
 ```
 
 ### HID Logic Rollback
