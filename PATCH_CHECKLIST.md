@@ -1,51 +1,233 @@
-# AutoLockdown v4.7.0 Patch Checklist
+# AutoLockdown v4.8.0 Patch Checklist
 
-This file documents every code and documentation change applied in the v4.7.0 patch, provides exact search patterns to validate each change, defines acceptance criteria, and gives rollback guidance.
+This file documents every code and documentation change applied in the v4.8.0 patch, provides exact search patterns to validate each change, defines acceptance criteria, and gives rollback guidance.
 
 ---
 
-## 1. Version Bump: 4.6.0 → 4.7.0
+## 1. Version Bump: 4.7.1 → 4.8.0
 
 ### Search Patterns (run from repo root)
 
 ```powershell
 # PowerShell / Select-String
-Select-String -Path *.ps1, *.md -Pattern "4\.6\.0"
+Select-String -Path *.ps1, *.md -Pattern "4\.7\.1"
 
 # Bash / grep
-grep -rn "4\.6\.0" .
+grep -rn "4\.7\.1" .
 ```
 
 ### Expected Findings After Patch
 
-The pattern `4\.6\.0` must return **zero** matches in the primary files.  
-The version `4.7.0` must appear in all of the following locations:
+The pattern `4\.7\.1` must return **zero** matches in the primary version fields.  
+The version `4.8.0` must appear in all of the following locations:
 
 | File | Location | Expected Value |
 |------|----------|----------------|
-| `AutoLockdown.ps1` | `.SYNOPSIS` line 3 | `AutoLockdown v4.7.0` |
-| `AutoLockdown.ps1` | `.NOTES` `Version` field | `4.7.0` |
-| `AutoLockdown.ps1` | `$ScriptVersion` variable | `"4.7.0"` |
-| `Reset_Lockdown.ps1` | `.SYNOPSIS` line 3 | `Reset_Lockdown.ps1 v4.7.0` |
-| `Reset_Lockdown.ps1` | `.NOTES` `Version` field | `4.7.0` |
-| `Reset_Lockdown.ps1` | `$ScriptVersion` variable | `"4.7.0"` |
-| `Verify_Lockdown.ps1` | `.SYNOPSIS` line 3 | `Verify_Lockdown.ps1 v4.7.0` |
-| `Verify_Lockdown.ps1` | `.NOTES` `Version` field | `4.7.0` |
-| `Verify_Lockdown.ps1` | `$ScriptVersion` variable | `"4.7.0"` |
-| `INSTRUCTIONS.md` | Heading `**Version X.Y.Z**` | `4.7.0` |
-| `INSTRUCTIONS.md` | Footer line | `AutoLockdown v4.7.0` |
-| `AutoLockdown_Context.md` | `**Version Reference:**` | `v4.7.0` |
+| `AutoLockdown.ps1` | `.SYNOPSIS` line 3 | `AutoLockdown v4.8.0` |
+| `AutoLockdown.ps1` | `.NOTES` `Version` field | `4.8.0` |
+| `AutoLockdown.ps1` | `$ScriptVersion` variable | `"4.8.0"` |
+| `Reset_Lockdown.ps1` | `.SYNOPSIS` line 3 | `Reset_Lockdown.ps1 v4.8.0` |
+| `Reset_Lockdown.ps1` | `.NOTES` `Version` field | `4.8.0` |
+| `Reset_Lockdown.ps1` | `$ScriptVersion` variable | `"4.8.0"` |
+| `Verify_Lockdown.ps1` | `.SYNOPSIS` line 3 | `Verify_Lockdown.ps1 v4.8.0` |
+| `Verify_Lockdown.ps1` | `.NOTES` `Version` field | `4.8.0` |
+| `Verify_Lockdown.ps1` | `$ScriptVersion` variable | `"4.8.0"` |
+| `INSTRUCTIONS.md` | Heading `**Version X.Y.Z**` | `4.8.0` |
+| `INSTRUCTIONS.md` | Footer line | `AutoLockdown v4.8.0` |
+| `AutoLockdown_Context.md` | `**Version Reference:**` | `v4.8.0` |
 
 ### Validation Commands
 
 ```powershell
-# Confirm all scripts self-report 4.7.0
+# Confirm all scripts self-report 4.8.0
 $scripts = @("AutoLockdown.ps1", "Reset_Lockdown.ps1", "Verify_Lockdown.ps1")
 foreach ($s in $scripts) {
     $ver = (Select-String -Path $s -Pattern '\$ScriptVersion\s*=\s*"([^"]+)"').Matches[0].Groups[1].Value
-    Write-Host "$s  =>  $ver" -ForegroundColor $(if ($ver -eq "4.7.0") {"Green"} else {"Red"})
+    Write-Host "$s  =>  $ver" -ForegroundColor $(if ($ver -eq "4.8.0") {"Green"} else {"Red"})
 }
-# Expected output: all three lines show "4.7.0" in green
+# Expected output: all three lines show "4.8.0" in green
+```
+
+---
+
+## 2. Container-Based Allow for JAC 5G Dongle (VID_322B)
+
+### Problem Statement
+
+The JAC 5G dongle (`VID_322B&PID_1914`) initially enumerates as a USB Mass Storage / CD-ROM device.  Once the OS (or a mode-switch driver) sends the switch command, the dongle re-enumerates with a **different VID/PID** representing its modem, RNDIS, or CDC composite interfaces.  Those mode-switched devnodes previously fell through to the block path because they did not carry `VID_322B`, causing the modem/network interfaces to be disabled before their drivers could bind.
+
+### Solution
+
+Windows assigns every devnode that belongs to the same physical USB device a shared **ContainerId** GUID (`DEVPKEY_Device_ContainerId`).  When the initial `VID_322B` devnode is seen and allowed as infrastructure, its ContainerId is recorded in a persistent allow-cache (`ContainerAllowCache.json`).  Subsequent devnodes (modem-mode interfaces) are checked against this cache; if their ContainerId matches a live (non-expired) cache entry they are allowed without needing to know their VID/PID.
+
+### Search Patterns
+
+```powershell
+# Confirm container allow cache path constant
+Select-String -Path AutoLockdown.ps1 -Pattern "ContainerAllowCacheFile"
+
+# Confirm TTL constant
+Select-String -Path AutoLockdown.ps1 -Pattern "CONTAINER_ALLOW_TTL_HOURS"
+
+# Confirm fast-path seeding
+Select-String -Path AutoLockdown.ps1 -Pattern "Add-ContainerToCache"
+
+# Confirm fast-path allow check
+Select-String -Path AutoLockdown.ps1 -Pattern "ContainerAllow"
+
+# Confirm WMI handler seeding + check
+Select-String -Path AutoLockdown.ps1 -Pattern "ContainerAllowCachePath"
+
+# Confirm Reset cleanup
+Select-String -Path Reset_Lockdown.ps1 -Pattern "ContainerAllowCache"
+```
+
+All commands must return at least one match.
+
+### Expected Code Blocks After Patch
+
+#### `AutoLockdown.ps1` — Constants block
+- `$ContainerAllowCacheFile = Join-Path $BasePath "ContainerAllowCache.json"`
+- `$CONTAINER_ALLOW_TTL_HOURS = 24`
+
+#### Fast-Path Watcher Runspace
+- `Test-ValidContainerGuid` helper validating GUID format.
+- `Load-ContainerCacheFast` / `Save-ContainerCacheFast` helpers for disk I/O.
+- `Add-ContainerToCache` seeding function (logs `ContainerAllow: seeded ...`).
+- After `$isInfra` block: if `$instanceId -imatch '^USB\\VID_322B'`, read `ContainerID` from registry and call `Add-ContainerToCache`.
+- Before HID checks: read device `ContainerID`, check against `$containerCache` in-memory; reload from disk if not found; allow with log `ALLOWED ... ContainerAllow`.
+
+#### WMI Handler (`Register-WmiEvent -Action`)
+- After always-allowed infrastructure check returns: if `$deviceId -imatch '^USB\\VID_322B'`, call `Get-PnpDeviceProperty DEVPKEY_Device_ContainerId`, update `ContainerAllowCache.json`.
+- Before final `BLOCKED ... Not whitelisted`: read ContainerId via `Get-PnpDeviceProperty`, check `ContainerAllowCache.json`; if match with non-expired entry log `ALLOWED ... ContainerAllow` and skip block.
+
+#### `Protect-USBDevice`
+- After `Test-AlwaysAllowedUSB` returns true: if `$Device.InstanceId -imatch '^USB\\VID_322B'`, read ContainerId via `Get-PnpDeviceProperty` and update cache file.
+- Before `Deny-Device`: read ContainerId and check cache file; if match, log `ALLOWED ... ContainerAllow` and increment `$script:Metrics.TotalAllowed`.
+
+#### `Reset_Lockdown.ps1` — Files-to-remove list
+- `"ContainerAllowCache.json"` added to `$filesToRemove`.
+
+### Validation Commands
+
+```powershell
+# Confirm constants present
+Select-String -Path AutoLockdown.ps1 -Pattern 'ContainerAllowCacheFile|CONTAINER_ALLOW_TTL_HOURS'
+
+# Confirm cache helpers present
+Select-String -Path AutoLockdown.ps1 -Pattern 'Load-ContainerCacheFast|Save-ContainerCacheFast|Add-ContainerToCache|Test-ValidContainerGuid'
+
+# Confirm ContainerAllow log message pattern present in all three paths
+Select-String -Path AutoLockdown.ps1 -Pattern 'ContainerAllow'
+
+# Confirm cleanup in reset
+Select-String -Path Reset_Lockdown.ps1 -Pattern 'ContainerAllowCache'
+```
+
+---
+
+## 3. Acceptance Test Matrix
+
+### 3.1 Version Acceptance
+
+| Check | Command | Expected Output |
+|-------|---------|-----------------|
+| AutoLockdown version | `Select-String AutoLockdown.ps1 '\$ScriptVersion'` | `4.8.0` |
+| Reset version | `Select-String Reset_Lockdown.ps1 '\$ScriptVersion'` | `4.8.0` |
+| Verify version | `Select-String Verify_Lockdown.ps1 '\$ScriptVersion'` | `4.8.0` |
+
+### 3.2 Container-Allow Behavior Test Matrix
+
+| Scenario | Device | Expected Result | How to Verify |
+|----------|--------|-----------------|---------------|
+| Initial plug-in | JAC dongle `VID_322B&PID_1914` (mass storage mode) | **ALLOWED — Infrastructure** in log; `ContainerAllowCache.json` created/updated | Plug in, check log + file |
+| Mode-switch | Modem/RNDIS interface of same dongle (different VID/PID, same ContainerId) | **ALLOWED — ContainerAllow** in log | Plug in, wait 10 s, check log |
+| Mode-switch | `USB Composite Device` of same dongle | **ALLOWED — ContainerAllow** in log | Plug in, check log |
+| Unrelated device | Flash drive (different ContainerId) | **BLOCKED — Not whitelisted** in log | Plug in, check log |
+| Unrelated device | Unknown USB device (non-VID_322B) | **BLOCKED** — not affected by container cache | Plug in, check log |
+| Cache expiry | Any mode-switched interface after 24 h of no VID_322B activity | Falls through to block path | Simulate by editing cache expiry to a past timestamp |
+
+### 3.3 Log Verification Commands
+
+```powershell
+# View last 30 lines of security log
+Get-Content C:\ProgramData\AutoLockdown\Security.log -Tail 30
+
+# Filter for container-allow events
+Get-Content C:\ProgramData\AutoLockdown\Security.log | Where-Object { $_ -match "ContainerAllow" }
+
+# View container allow cache
+Get-Content C:\ProgramData\AutoLockdown\ContainerAllowCache.json | ConvertFrom-Json | Select-Object -ExpandProperty Containers
+```
+
+---
+
+## 4. HID Behavior Test Matrix (unchanged from v4.7.0)
+
+| Scenario | Device | Expected Result |
+|----------|--------|-----------------|
+| Any port | Standard keyboard (trusted VID) | **ALLOWED** — `Trusted HID` |
+| Any port | Standard mouse (trusted VID) | **ALLOWED** — `Trusted HID` |
+| Any port | iPhone (VID_05AC, class=Image) | **BLOCKED** — fast-path or WMI |
+| Any port | Android MTP (class=WPD) | **BLOCKED** — fast-path or WMI |
+| Any port | Rubber Ducky | **BLOCKED** — threat block |
+| Any port | FTDI relay (VID_0403) | **ALLOWED** — Infrastructure |
+| Any port | JAC 5G dongle (VID_322B) | **ALLOWED** — Infrastructure + container cache seeded |
+
+---
+
+## 5. Post-Deploy Validation Steps (Operator Guide)
+
+1. Run `.\Verify_Lockdown.ps1` → confirm `Status: HEALTHY`, `Errors: 0`.
+2. Unplug and re-plug the JAC 5G dongle.  
+   Wait 15–30 seconds for mode-switch to complete.  
+   Log must show `ALLOWED ... Infrastructure` for `VID_322B&PID_1914` **and** `ALLOWED ... ContainerAllow` for the modem interfaces.  
+   File `C:\ProgramData\AutoLockdown\ContainerAllowCache.json` must exist and contain a non-expired entry.
+3. Confirm keyboard and mouse still work.
+4. Plug in an unknown USB flash drive — must be blocked within 1 second.
+
+---
+
+## 6. Rollback Notes
+
+### Version Rollback (4.8.0 → 4.7.1)
+
+```powershell
+(Get-Content AutoLockdown.ps1)  -replace "4\.8\.0", "4.7.1" | Set-Content AutoLockdown.ps1
+(Get-Content Reset_Lockdown.ps1) -replace "4\.8\.0", "4.7.0" | Set-Content Reset_Lockdown.ps1
+(Get-Content Verify_Lockdown.ps1) -replace "4\.8\.0", "4.7.0" | Set-Content Verify_Lockdown.ps1
+(Get-Content INSTRUCTIONS.md)   -replace "4\.8\.0", "4.7.0" | Set-Content INSTRUCTIONS.md
+```
+
+### Container-Allow Logic Rollback
+
+Remove the following sections from `AutoLockdown.ps1`:
+- `$ContainerAllowCacheFile` and `$CONTAINER_ALLOW_TTL_HOURS` constants.
+- `Test-ValidContainerGuid`, `Load-ContainerCacheFast`, `Save-ContainerCacheFast`, `Add-ContainerToCache` functions in the watcher runspace.
+- `Load-ContainerCacheFast` call at runspace startup.
+- Container seeding block after `$isInfra` check in the fast-path watcher loop.
+- Container cache check block after `$isInfra` check in the fast-path watcher loop.
+- Container seeding block in WMI handler after `$isWmiInfra` block.
+- Container cache check block before final `BLOCKED` in WMI handler.
+- Container seeding and check blocks in `Protect-USBDevice`.
+- Remove `ContainerAllowCachePath` and `ContainerAllowTTLHours` from `$watcherConfig` and `$messageData`.
+- Remove `"ContainerAllowCache.json"` from `$filesToRemove` in `Reset_Lockdown.ps1`.
+
+> ⚠️ **Rollback Warning:** Reverting the container-allow logic means the JAC 5G dongle's modem-mode interfaces will again be blocked by the fast-path watcher immediately after mode-switch. Only roll back if the patch itself causes issues; document the reason.
+
+---
+
+## 7. Git Reference
+
+```bash
+# Show files changed in this patch
+git diff --name-only HEAD~1
+
+# Show full diff
+git diff HEAD~1
+
+# Revert this patch commit
+git revert HEAD
 ```
 
 ---

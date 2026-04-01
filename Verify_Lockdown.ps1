@@ -1,13 +1,13 @@
 <#
 .SYNOPSIS
-    Verify_Lockdown.ps1 v4.7.0 - AutoLockdown Health Check & Validation
+    Verify_Lockdown.ps1 v4.8.0 - AutoLockdown Health Check & Validation
 .DESCRIPTION
     Comprehensive verification tool that validates AutoLockdown deployment,
     monitors system health, and provides detailed status reports.
     
 .NOTES
     File Name : Verify_Lockdown.ps1
-    Version   : 4.7.0
+    Version   : 4.8.0
     Author    : Meet Gandhi (Product Security Engineer)
     Created   : February 2026
     Requires  : PowerShell 5.1+, Administrator privileges
@@ -39,7 +39,7 @@ param(
     [string]$OutputPath = "C:\Reports"
 )
 
-$ScriptVersion = "4.7.0"
+$ScriptVersion = "4.8.0"
 $ProductName = "AutoLockdown"
 
 # Load assemblies
