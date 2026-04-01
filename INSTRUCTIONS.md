@@ -1,5 +1,5 @@
 # AutoLockdown Field Deployment Guide
-**Version 4.7.0** | Created by: Meet Gandhi (Product Security Engineer)
+**Version 4.7.2** | Created by: Meet Gandhi (Product Security Engineer)
 
 ---
 
@@ -245,7 +245,7 @@ Shows a full GUI dashboard with USB device details, network status, and mode inf
 
 ## Files Created
 
-AutoLockdown creates **10 files** in `C:\ProgramData\AutoLockdown\`:
+AutoLockdown creates **11 files** in `C:\ProgramData\AutoLockdown\`:
 
 | File | Purpose | Encrypted |
 |---|---|---|
@@ -258,6 +258,7 @@ AutoLockdown creates **10 files** in `C:\ProgramData\AutoLockdown\`:
 | `Deployment_Meta.json` | Deployment timestamp and machine info | No |
 | `System_Backup.json` | Pre-deployment system state backup | No |
 | `Trusted_HID.json` | Trusted keyboard/mouse vendor IDs (~93 vendors) | No |
+| `Container_Allow.json` | Container-based allow list (persists mode-switch device identities) | No |
 | `monitor.lock` | Lock file indicating monitor is running (contains PID) | No |
 
 **Additional files (created on demand):**
@@ -286,6 +287,8 @@ AutoLockdown creates **10 files** in `C:\ProgramData\AutoLockdown\`:
 | Network adapter blocked | Must be connected during init. Run `.\Reset_Lockdown.ps1` → re-initialize |
 | Keyboard/mouse blocked | Should not happen (93 HID vendors are auto-allowed). If it does, reboot and re-initialize |
 | iOS/Android device not blocked quickly | Requires v4.7.0+ (fast-path watcher). Run `.\Verify_Lockdown.ps1` — check "Fast-Path Watcher: PASS". If WARN, re-initialize to deploy the updated script. |
+| 5G dongle blocked after mode-switch | The dongle presents as mass-storage first (VID_322B), then switches to modem mode with different VIDs. v4.7.2+ automatically records the ContainerId of the initial storage-mode device and allows all subsequent interfaces sharing that container. Verify with `.\Verify_Lockdown.ps1` — "Container Allow List" should show ≥ 1 entry after the dongle is plugged in. |
+| Need to disable container-based allow | Delete `C:\ProgramData\AutoLockdown\Container_Allow.json` and restart the monitor. No new container entries will be created. **Not recommended** — this will re-introduce 5G dongle mode-switch blocks. |
 | Need to remove AutoLockdown | Run `.\Reset_Lockdown.ps1` → Reboot |
 | Add a device after deployment | First try: `.\AutoLockdown.ps1 -AddDevice -DeviceVidPid "VID_XXXX&PID_YYYY" -DeviceName "My Device"`. If that fails: Reset → Connect device → Re-initialize |
 | Quick re-deploy (keep whitelist) | Run `.\Reset_Lockdown.ps1 -KeepWhitelist` → Re-initialize |
@@ -348,4 +351,4 @@ Before leaving site, confirm all boxes:
 
 ---
 
-*AutoLockdown v4.7.0 — Enterprise USB Security Hardening Suite*
+*AutoLockdown v4.7.2 — Enterprise USB Security Hardening Suite*
