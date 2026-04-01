@@ -1,13 +1,13 @@
 <#
 .SYNOPSIS
-    Verify_Lockdown.ps1 v4.7.0 - AutoLockdown Health Check & Validation
+    Verify_Lockdown.ps1 v4.7.2 - AutoLockdown Health Check & Validation
 .DESCRIPTION
     Comprehensive verification tool that validates AutoLockdown deployment,
     monitors system health, and provides detailed status reports.
     
 .NOTES
     File Name : Verify_Lockdown.ps1
-    Version   : 4.7.0
+    Version   : 4.7.2
     Author    : Meet Gandhi (Product Security Engineer)
     Created   : February 2026
     Requires  : PowerShell 5.1+, Administrator privileges
@@ -39,7 +39,7 @@ param(
     [string]$OutputPath = "C:\Reports"
 )
 
-$ScriptVersion = "4.7.0"
+$ScriptVersion = "4.7.2"
 $ProductName = "AutoLockdown"
 
 # Load assemblies
@@ -132,6 +132,7 @@ $DeployedScript = Join-Path $BasePath "AutoLockdown.ps1"
 $HIDVendorsFile = Join-Path $BasePath "Trusted_HID.json"
 $BackupFile = Join-Path $BasePath "System_Backup.json"
 $EmergencyBypassFile = Join-Path $BasePath "EMERGENCY_BYPASS"
+$ContainerAllowFile = Join-Path $BasePath "Container_Allow.json"
 
 # Always-Allowed USB Vendors (Infrastructure devices - bypass blocking)
 $ALWAYS_ALLOWED_USB_VENDORS = @(
@@ -741,6 +742,52 @@ function Test-HIDVendorsContent {
     }
 }
 
+function Test-ContainerAllowFile {
+    <#
+    .SYNOPSIS
+        Verifies the Container_Allow.json file presence, schema, and entry count.
+    #>
+    if (-not (Test-Path $ContainerAllowFile)) {
+        Write-Check -Component "Container Allow List" -Status "INFO" -Message "Not present (no trusted devices recorded yet)" -Detail "Path: $ContainerAllowFile"
+        return $true
+    }
+
+    try {
+        $raw = Get-Content $ContainerAllowFile -Raw -Encoding UTF8 -ErrorAction Stop
+        $doc = $raw | ConvertFrom-Json
+
+        if ($null -eq $doc.schemaVersion) {
+            Write-Check -Component "Container Allow List" -Status "WARN" -Message "Missing schemaVersion field" -Detail "File may be from an older version"
+            return $false
+        }
+
+        $now = [DateTime]::UtcNow
+        $total   = 0
+        $expired = 0
+        if ($doc.containers) {
+            foreach ($prop in $doc.containers.PSObject.Properties) {
+                $total++
+                try {
+                    $exp = [DateTime]::Parse($prop.Value.ExpiresUtc, $null, [System.Globalization.DateTimeStyles]::RoundtripKind)
+                    if ($exp -lt $now) { $expired++ }
+                } catch { $expired++ }
+            }
+        }
+
+        $detail = "Path: $ContainerAllowFile  |  schemaVersion: $($doc.schemaVersion)  |  total: $total  |  expired (pending prune): $expired"
+        if ($expired -gt 0) {
+            Write-Check -Component "Container Allow List" -Status "WARN" -Message "$total entr$(if ($total -eq 1) {'y'} else {'ies'}) ($expired expired, will prune on next monitor start)" -Detail $detail
+        } else {
+            Write-Check -Component "Container Allow List" -Status "PASS" -Message "$total active entr$(if ($total -eq 1) {'y'} else {'ies'})" -Detail $detail
+        }
+        return $true
+    }
+    catch {
+        Write-Check -Component "Container Allow List" -Status "FAIL" -Message "Corrupted or invalid" -Detail "Error: $_"
+        return $false
+    }
+}
+
 function Test-DeployedVersion {
     if (-not (Test-Path $DeployedScript)) { return $false }
     
@@ -997,6 +1044,7 @@ Test-ThreatDatabase
 Test-BlockedDevices
 Test-InfrastructureDevices
 Test-HIDVendorsContent
+Test-ContainerAllowFile
 
 Write-Host ""
 Write-Host "System Health:" -ForegroundColor Yellow

@@ -1,5 +1,5 @@
 # AutoLockdown Project Context
-**Version Reference:** v4.7.0
+**Version Reference:** v4.7.2
 **Repository:** hanmason535-debug/LockdownScript
 
 ## Overview
@@ -36,6 +36,7 @@ Once deployed, AutoLockdown builds its environment primarily within `C:\ProgramD
 - **`USB_Whitelist.json` & `Network_Whitelist.json`:** Approved devices and adapters learned during initialization.
 - **`Learning_State.json`:** Tracks mode and timing. Protected via DPAPI encryption.
 - **`ThreatDB.json` & `Trusted_HID.json`:** Signature databases for known threats and approved vendors.
+- **`Container_Allow.json`:** Persistent container-based allow list.  When a trusted device (infrastructure vendor, HID vendor, or whitelisted VID/PID) is allowed, its Windows `ContainerId` GUID is recorded here along with `SeedInstanceId`, `SeedVidPid`, `FirstSeenUtc`, `LastSeenUtc`, and `ExpiresUtc` (rolling 30-day window).  Subsequent device interfaces that share the same `ContainerId` (e.g., a 5G dongle that mode-switches from mass-storage to modem) are automatically allowed without needing an explicit whitelist entry.  The file is loaded at monitor startup (expired entries are pruned), and the fast-path registry watcher reloads it every 5 seconds.  To disable this feature, delete the file (not recommended — re-introduces 5G dongle mode-switch blocks).  The file is deleted by `Reset_Lockdown.ps1` during full reset.
 - **`EMERGENCY_BYPASS`:** A file trigger that grants a temporary 30-minute bypass for critical physical interventions.
 
 ## HID Allow Logic (USB-A and USB-C)
@@ -43,24 +44,26 @@ Allow/deny decisions are based entirely on **device class, ClassGUID, and vendor
 
 ### Normal Monitoring Path (`Protect-USBDevice`)
 1. Check emergency bypass → allow all.
-2. Check device Class (`Keyboard`, `Mouse`, `HIDClass`) **and** `Test-TrustedHIDVendor` → allow.
-3. Check always-allowed infrastructure (FTDI, JAC) → allow.
-4. Check USB whitelist → allow if present.
-5. Check threat database → block if matched.
-6. Learning mode → add to whitelist and allow; Enforcement mode → block.
+2. Check device Class (`Keyboard`, `Mouse`, `HIDClass`) **and** `Test-TrustedHIDVendor` → allow and record `ContainerId`.
+3. Check always-allowed infrastructure (FTDI, JAC) → allow and record `ContainerId`.
+4. Check `Container_Allow.json` for matching `ContainerId` → allow (covers mode-switched interfaces).
+5. Check USB whitelist → allow if present and record `ContainerId`.
+6. Check threat database → block if matched.
+7. Learning mode → add to whitelist and allow; Enforcement mode → block.
 
 ### Fast-Path Registry Watcher Path (250 ms polling)
 1. Check emergency bypass → allow.
-2. Check always-allowed infrastructure vendors → allow.
+2. Check always-allowed infrastructure vendors → allow and record `ContainerId`.
 3. Check `Class` registry value (written early by Windows):
-   - If Class is a known HID class name **and** vendor is trusted → allow.
+   - If Class is a known HID class name **and** vendor is trusted → allow and record `ContainerId`.
 4. Check `ClassGUID` registry value (written slightly before Class string):
-   - If ClassGUID matches `{4D36E96B}` (keyboard), `{4D36E96F}` (mouse), or `{745A17A0}` (HID) **and** vendor is trusted → allow.
+   - If ClassGUID matches `{4D36E96B}` (keyboard), `{4D36E96F}` (mouse), or `{745A17A0}` (HID) **and** vendor is trusted → allow and record `ContainerId`.
 5. **Defer if class not yet written:** If vendor is trusted HID but neither `Class` nor `ClassGUID` exists yet (device still enumerating), re-queue for next poll instead of blocking. This prevents transient blocking of legitimate keyboards/mice before the OS writes their class. Non-HID devices (e.g., iPhones with `VID_05AC`, class `Image`/`WPD`) will have their class written within one or two polls and will correctly fall through to the block path.
-6. If class is present but non-HID → fall through to whitelist/block decision.
-7. Check learning mode → allow.
-8. Check whitelist → allow.
-9. Enforcement mode → block immediately (pre-driver).
+6. If class is present but non-HID → fall through to container/whitelist/block decision.
+7. Check `Container_Allow.json` for matching `ContainerId` → allow (covers mode-switched interfaces that share a physical device container with a previously allowed device).  File reloaded every 5 s.
+8. Check learning mode → allow.
+9. Check whitelist → allow and record `ContainerId`.
+10. Enforcement mode → block immediately (pre-driver).
 
 ### Key Invariants
 - A device connected via USB-C through a hub or dock is enumerated identically to USB-A; Windows assigns the same class/GUID regardless of physical connector.
