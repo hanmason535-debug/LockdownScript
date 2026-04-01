@@ -1464,7 +1464,7 @@ function Set-HardenedSystemPolicy {
 #   NETWORK ADAPTER MANAGEMENT
 # ============================================================================
 
-function Test-CellularAdapter { param([string]$Description); return ($Description -match "Mobile|WWAN|Cellular|LTE|5G|4G|3G|Modem|Sierra|Huawei|Quectel|Telit|Ericsson|Fibocom") }
+function Test-CellularAdapter { param([string]$Description); return ($Description -match "Mobile|WWAN|Cellular|LTE|5G|4G|3G|Modem|Sierra|Huawei|Quectel|Telit|Ericsson|Fibocom|JAC|NDIS|RNDIS|CDC") }
 function Test-PhysicalEthernet { param([string]$Description); if ($Description -match "Ethernet" -and $Description -notmatch "Virtual|VMware|VirtualBox|Hyper-V|TAP|Bridge") { return $true }; return $false }
 function Test-WiFiAdapter { param([string]$Description); return ($Description -match "Wireless|Wi-Fi|802.11|WiFi|WLAN") }
 function Test-BluetoothAdapter { param([string]$Description); return ($Description -match "Bluetooth") }
