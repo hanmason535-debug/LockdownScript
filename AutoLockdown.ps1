@@ -38,8 +38,17 @@
     - Reduced WMI polling interval from WITHIN 2 to WITHIN 1 (secondary catch-all)
     - WMI handler now skips devices already disabled by the fast-path watcher
     - Added Start-RegistryWatcher function and $script:RegWatcher state variable
-    - Registry watcher correctly handles HID vendor check using registry Class value
-      so Apple iPhones (VID_05AC, class "Image"/"WPD") are not falsely allowed
+    - Registry watcher HID check now reads both Class and ClassGUID registry values;
+      ClassGUID allow-list covers keyboard ({4D36E96B}), mouse ({4D36E96F}), and HID
+      ({745A17A0}) so trusted peripherals are allowed even before the human-readable
+      Class string is written (avoids transient block of legit keyboards/mice on first
+      plug-in, including those on USB-C controllers/hubs)
+    - Fast-path now defers (re-queues for next 250 ms poll) instead of blocking when a
+      trusted HID vendor device has no Class or ClassGUID yet; WMI handler serves as
+      secondary catch-all  -  Apple iPhones (VID_05AC, class Image/WPD) are still
+      correctly blocked once their non-HID class is written
+    - Allow/deny logic is class/interface/vendor-based throughout; physical connector
+      type (USB-A vs USB-C) has no effect on policy decisions
     - Watcher runspace is fully cleaned up on monitor exit
 
     Changelog v4.6.0:
@@ -1586,6 +1595,15 @@ function Start-RegistryWatcher {
         # Registry-friendly HID class names set early by Windows
         $HID_REGISTRY_CLASSES = @("HIDClass", "HID", "Keyboard", "Mouse", "Human Interface Device", "Bluetooth")
 
+        # Well-known HID ClassGUIDs (keyboard, mouse/pointer, generic HID).
+        # ClassGUID is written to the registry slightly before the human-readable Class
+        # string, so it serves as a reliable early-classification fallback.
+        $HID_CLASS_GUIDS = @(
+            "{4D36E96B-E325-11CE-BFC1-08002BE10318}",  # Keyboard
+            "{4D36E96F-E325-11CE-BFC1-08002BE10318}",  # Mouse / Pointer
+            "{745A17A0-74D3-11D0-B6FE-00A0C90F57DA}"   # Human Interface Device
+        )
+
         $knownInstanceIds = [System.Collections.Generic.HashSet[string]]::new(
             [System.StringComparer]::OrdinalIgnoreCase)
 
@@ -1683,12 +1701,15 @@ function Start-RegistryWatcher {
                         if ($isInfra) { Write-WatcherLog "ALLOWED $vidpid - Infrastructure" -Level "SUCCESS"; continue }
 
                         # --- Check trusted HID vendors with registry-class guard ---
-                        # Read the "Class" value written early by Windows (before driver binds).
-                        # If Class is absent the device is still being enumerated; treat as non-HID
-                        # so we do NOT falsely allow iPhones (VID_05AC class=Image/WPD).
-                        $regClass = $null
+                        # Read the "Class" and "ClassGUID" values written early by Windows
+                        # (before driver binds).  ClassGUID is typically written slightly before
+                        # the human-readable Class string, so it serves as a reliable fallback.
+                        $regClass     = $null
+                        $regClassGuid = $null
                         try {
-                            $regClass = (Get-ItemProperty $instanceKey.PSPath -Name "Class" -ErrorAction SilentlyContinue).Class
+                            $regProps     = Get-ItemProperty $instanceKey.PSPath -ErrorAction SilentlyContinue
+                            $regClass     = $regProps.Class
+                            $regClassGuid = $regProps.ClassGUID
                         } catch {}
 
                         # --- Allow USB infrastructure by registry class (hubs, root hubs) ---
@@ -1703,8 +1724,17 @@ function Start-RegistryWatcher {
                         foreach ($vendor in $HIDVendors) {
                             if ($idUpper -match [regex]::Escape($vendor.ToUpper())) { $isHIDVendor = $true; break }
                         }
+
+                        # Allow: trusted vendor + Class string confirms HID
                         if ($isHIDVendor -and $regClass -and $HID_REGISTRY_CLASSES -contains $regClass) {
-                            Write-WatcherLog "ALLOWED $vidpid - Trusted HID vendor" -Level "SUCCESS"
+                            Write-WatcherLog "ALLOWED $vidpid - Trusted HID vendor (class=$regClass)" -Level "SUCCESS"
+                            continue
+                        }
+
+                        # Allow: trusted vendor + ClassGUID confirms HID (fallback when Class
+                        # string is not yet written, e.g. some USB-C controllers on first plug-in)
+                        if ($isHIDVendor -and $regClassGuid -and $HID_CLASS_GUIDS -contains $regClassGuid) {
+                            Write-WatcherLog "ALLOWED $vidpid - Trusted HID vendor (ClassGUID=$regClassGuid)" -Level "SUCCESS"
                             continue
                         }
                         # If vendor is in the HID list but Class is not yet set (device still
