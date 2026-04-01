@@ -1,5 +1,5 @@
 # AutoLockdown Project Context
-**Version Reference:** v4.7.0
+**Version Reference:** v4.8.0
 **Repository:** hanmason535-debug/LockdownScript
 
 ## Overview
@@ -44,23 +44,30 @@ Allow/deny decisions are based entirely on **device class, ClassGUID, and vendor
 ### Normal Monitoring Path (`Protect-USBDevice`)
 1. Check emergency bypass → allow all.
 2. Check device Class (`Keyboard`, `Mouse`, `HIDClass`) **and** `Test-TrustedHIDVendor` → allow.
-3. Check always-allowed infrastructure (FTDI, JAC) → allow.
+3. Check always-allowed infrastructure (FTDI, JAC) → allow; if device is `VID_322B`, seed ContainerId allow cache.
 4. Check USB whitelist → allow if present.
 5. Check threat database → block if matched.
-6. Learning mode → add to whitelist and allow; Enforcement mode → block.
+6. **Check container allow cache** → allow if device ContainerId matches a cached trusted VID_322B device.
+7. Learning mode → add to whitelist and allow; Enforcement mode → block.
 
 ### Fast-Path Registry Watcher Path (250 ms polling)
 1. Check emergency bypass → allow.
-2. Check always-allowed infrastructure vendors → allow.
-3. Check `Class` registry value (written early by Windows):
+2. Check always-allowed infrastructure vendors → allow; if `VID_322B`, read `ContainerID` from registry and seed in-memory + disk container allow cache.
+3. **Check container allow cache** → allow if device `ContainerID` registry value matches a cached trusted VID_322B ContainerId.
+4. Check `Class` registry value (written early by Windows):
    - If Class is a known HID class name **and** vendor is trusted → allow.
-4. Check `ClassGUID` registry value (written slightly before Class string):
+5. Check `ClassGUID` registry value (written slightly before Class string):
    - If ClassGUID matches `{4D36E96B}` (keyboard), `{4D36E96F}` (mouse), or `{745A17A0}` (HID) **and** vendor is trusted → allow.
-5. **Defer if class not yet written:** If vendor is trusted HID but neither `Class` nor `ClassGUID` exists yet (device still enumerating), re-queue for next poll instead of blocking. This prevents transient blocking of legitimate keyboards/mice before the OS writes their class. Non-HID devices (e.g., iPhones with `VID_05AC`, class `Image`/`WPD`) will have their class written within one or two polls and will correctly fall through to the block path.
-6. If class is present but non-HID → fall through to whitelist/block decision.
-7. Check learning mode → allow.
-8. Check whitelist → allow.
-9. Enforcement mode → block immediately (pre-driver).
+6. **Defer if class not yet written:** If vendor is trusted HID but neither `Class` nor `ClassGUID` exists yet (device still enumerating), re-queue for next poll instead of blocking. This prevents transient blocking of legitimate keyboards/mice before the OS writes their class. Non-HID devices (e.g., iPhones with `VID_05AC`, class `Image`/`WPD`) will have their class written within one or two polls and will correctly fall through to the block path.
+7. If class is present but non-HID → fall through to whitelist/block decision.
+8. Check learning mode → allow.
+9. Check whitelist → allow.
+10. Enforcement mode → block immediately (pre-driver).
+
+### Container-Based Allow (v4.8.0)
+- When the JAC 5G dongle (`VID_322B`) first connects in mass-storage mode, Windows enumerates it as a single devnode. The fast-path watcher reads the `ContainerID` registry value and stores the GUID in a persistent cache file (`ContainerAllowCache.json`).
+- When the dongle mode-switches into modem/RNDIS mode, Windows creates new devnodes with different VID/PIDs. These devnodes share the same `ContainerID` GUID as the original `VID_322B` device. All three enforcement paths check this cache and allow matching devnodes without needing to know the modem-mode VID/PID in advance.
+- Cache entries expire after 24 hours and are pruned on load. Only `USB\VID_322B` devnodes seed the cache. ContainerIds are validated as GUIDs before use.
 
 ### Key Invariants
 - A device connected via USB-C through a hub or dock is enumerated identically to USB-A; Windows assigns the same class/GUID regardless of physical connector.

@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    AutoLockdown v4.7.1 - Enterprise USB Security Hardening Suite
+    AutoLockdown v4.8.0 - Enterprise USB Security Hardening Suite
 .DESCRIPTION
     Production-grade USB security enforcement with intelligent learning mode,
     threat detection, and comprehensive monitoring capabilities.
@@ -13,11 +13,28 @@
     
 .NOTES
     File Name : AutoLockdown.ps1
-    Version   : 4.7.1
+    Version   : 4.8.0
     Author    : Meet Gandhi (Product Security Engineer)
     Created   : February 2026
     Requires  : PowerShell 5.1+, Administrator privileges
     
+    Changelog v4.8.0:
+    - Implemented container-based allow for JAC 5G dongle (VID_322B) mode-switching:
+      after the dongle's mass-storage identity is trusted, its DEVPKEY_Device_ContainerId
+      (a Windows-assigned GUID grouping all devnodes of the same physical USB device) is
+      recorded in a persistent allow cache (ContainerAllowCache.json, 24-hour TTL).
+      Any subsequent devnode sharing that ContainerId (composite device, RNDIS/MBIM modem
+      interface, CDC serial, etc.) is automatically allowed without needing to pre-know
+      the modem-mode VID/PID.
+    - Cache is shared across fast-path registry watcher, WMI handler, and Protect-USBDevice
+      via the persisted JSON file; in-memory copy maintained in the watcher runspace for
+      sub-millisecond lookup.
+    - Security safeguards: ContainerId is validated as a non-empty GUID; only devnodes
+      whose InstanceId starts with USB\VID_322B seed the cache; cache entries expire after
+      24 h and are pruned on load to prevent unbounded growth.
+    - Diagnostic log entries emitted for ContainerId discovery, cache seeding, and cache
+      hit/miss decisions.
+
     Changelog v4.7.1:
     - Fixed fast-path registry watcher blocking USB hubs (Class="USB"/"HUBClass"):
       disabling a hub cut off every device on that hub, bricking all downstream ports
@@ -123,7 +140,7 @@ if (-not $Monitor) {
 # Encryption Scope (LocalMachine allows authorized admins/SYSTEM to decrypt)
 $DPAPI_SCOPE = [System.Security.Cryptography.DataProtectionScope]::LocalMachine
 
-$ScriptVersion = "4.7.1"
+$ScriptVersion = "4.8.0"
 $ProductName = "AutoLockdown"
 
 
@@ -163,6 +180,7 @@ $LearningFile = Join-Path $BasePath "Learning_State.json"
 $DeployedScript = Join-Path $BasePath "AutoLockdown.ps1"
 $HIDVendorsFile = Join-Path $BasePath "Trusted_HID.json"
 $EmergencyBypassFile = Join-Path $BasePath "EMERGENCY_BYPASS"
+$ContainerAllowCacheFile = Join-Path $BasePath "ContainerAllowCache.json"
 
 # Configuration
 $MaxLogSizeMB = 50
@@ -170,6 +188,7 @@ $MaxLogFiles = 5
 $MaxWhitelistDevices = 100
 $MutexTimeout = 30000
 $MinDiskSpaceMB = 10
+$CONTAINER_ALLOW_TTL_HOURS = 24
 
 # Script state
 $script:StartTime = Get-Date
@@ -1655,7 +1674,68 @@ function Start-RegistryWatcher {
             } catch { return $false }
         }
 
-        $usbEnumPath = "HKLM:\SYSTEM\CurrentControlSet\Enum\USB"
+        # ---------------------------------------------------------------------------
+        # Container-based allow cache (in-memory + disk, keyed by ContainerId GUID)
+        # Used to allow mode-switched devnodes that share the same physical device
+        # ContainerId as a trusted VID_322B seed device.
+        # ---------------------------------------------------------------------------
+
+        # In-memory: hashtable ContainerId (uppercase) -> expiry DateTime
+        $containerCache = @{}
+
+        function Test-ValidContainerGuid {
+            param([string]$Id)
+            if (-not $Id) { return $false }
+            return $Id -match '^\{[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\}$'
+        }
+
+        function Load-ContainerCacheFast {
+            # Reads disk cache into $containerCache, pruning expired entries.
+            # Errors are silently swallowed so the watcher loop never exits.
+            try {
+                if (-not (Test-Path $ContainerAllowCachePath)) { return }
+                $raw = Get-Content $ContainerAllowCachePath -Raw -Encoding UTF8 -ErrorAction Stop
+                $parsed = $raw | ConvertFrom-Json
+                $now = Get-Date
+                foreach ($entry in $parsed.Containers) {
+                    if (-not (Test-ValidContainerGuid $entry.ContainerId)) { continue }
+                    $expiry = [DateTime]::Parse($entry.Expires)
+                    if ($now -lt $expiry) {
+                        $containerCache[$entry.ContainerId.ToUpper()] = $expiry
+                    }
+                }
+            } catch {}
+        }
+
+        function Save-ContainerCacheFast {
+            # Flushes the in-memory cache to disk, pruning expired entries first.
+            try {
+                $now = Get-Date
+                $entries = @()
+                foreach ($cid in @($containerCache.Keys)) {
+                    if ($now -ge $containerCache[$cid]) { $containerCache.Remove($cid); continue }
+                    $entries += [PSCustomObject]@{
+                        ContainerId = $cid
+                        Expires     = $containerCache[$cid].ToString("yyyy-MM-dd HH:mm:ss")
+                    }
+                }
+                $data = [PSCustomObject]@{ Version = "4.8.0"; Updated = $now.ToString("yyyy-MM-dd HH:mm:ss"); Containers = $entries }
+                $data | ConvertTo-Json -Depth 3 | Out-File $ContainerAllowCachePath -Encoding UTF8 -Force
+            } catch {}
+        }
+
+        function Add-ContainerToCache {
+            param([string]$ContainerId, [string]$SeedInstanceId)
+            if (-not (Test-ValidContainerGuid $ContainerId)) { return }
+            $cidUpper = $ContainerId.ToUpper()
+            $expiry = (Get-Date).AddHours($ContainerAllowTTLHours)
+            $containerCache[$cidUpper] = $expiry
+            Write-WatcherLog "ContainerAllow: seeded ContainerId=$ContainerId from $SeedInstanceId (expires $($expiry.ToString('yyyy-MM-dd HH:mm:ss')))" -Level "INFO"
+            Save-ContainerCacheFast
+        }
+
+        # Load any previously persisted container allow entries at watcher startup
+        Load-ContainerCacheFast
 
         while ($true) {
             try {
@@ -1698,7 +1778,48 @@ function Start-RegistryWatcher {
                         foreach ($vendor in $AlwaysAllowedVendors) {
                             if ($idUpper -match [regex]::Escape($vendor.ToUpper())) { $isInfra = $true; break }
                         }
-                        if ($isInfra) { Write-WatcherLog "ALLOWED $vidpid - Infrastructure" -Level "SUCCESS"; continue }
+                        if ($isInfra) {
+                            Write-WatcherLog "ALLOWED $vidpid - Infrastructure" -Level "SUCCESS"
+                            # Seed the container allow cache when a trusted VID_322B device is seen
+                            # so that its mode-switched modem devnodes (different VID/PID, same
+                            # physical device ContainerId) are automatically allowed below.
+                            if ($instanceId -imatch '^USB\\VID_322B') {
+                                try {
+                                    $cidRaw = (Get-ItemProperty $instanceKey.PSPath -ErrorAction SilentlyContinue).ContainerID
+                                    if ($cidRaw -and (Test-ValidContainerGuid $cidRaw)) {
+                                        Add-ContainerToCache -ContainerId $cidRaw -SeedInstanceId $instanceId
+                                    } else {
+                                        Write-WatcherLog "ContainerAllow: ContainerId unavailable for $instanceId (not seeded)" -Level "INFO"
+                                    }
+                                } catch {
+                                    Write-WatcherLog "ContainerAllow: error reading ContainerId for $instanceId : $_" -Level "INFO"
+                                }
+                            }
+                            continue
+                        }
+
+                        # --- Check container allow cache (mode-switched trusted devices) ---
+                        # A VID_322B device that was already allowed above seeded the container
+                        # cache with its ContainerId.  Any later devnode sharing that ContainerId
+                        # (e.g. RNDIS modem, CDC serial) is allowed here even if its VID/PID
+                        # does not appear in AlwaysAllowedVendors.
+                        try {
+                            $devContainerId = (Get-ItemProperty $instanceKey.PSPath -ErrorAction SilentlyContinue).ContainerID
+                            if ($devContainerId -and (Test-ValidContainerGuid $devContainerId)) {
+                                $cidKey = $devContainerId.ToUpper()
+                                $cacheExpiry = $containerCache[$cidKey]
+                                if (-not $cacheExpiry) {
+                                    # Not in in-memory cache; reload disk cache in case another
+                                    # path seeded it (e.g. WMI handler or Protect-USBDevice).
+                                    Load-ContainerCacheFast
+                                    $cacheExpiry = $containerCache[$cidKey]
+                                }
+                                if ($cacheExpiry -and ((Get-Date) -lt $cacheExpiry)) {
+                                    Write-WatcherLog "ALLOWED $vidpid ($instanceId) - ContainerAllow (same physical device as trusted VID_322B)" -Level "SUCCESS"
+                                    continue
+                                }
+                            }
+                        } catch {}
 
                         # --- Check trusted HID vendors with registry-class guard ---
                         # Read the "Class" and "ClassGUID" values written early by Windows
@@ -1868,12 +1989,14 @@ function Start-RealtimeMonitoring {
     # 250 ms and blocks unknown devices before any driver can bind.
     Write-LogMessage "Starting fast-path registry watcher (250 ms)..." -Level "INFO"
     $watcherConfig = @{
-        LogPath             = $LogFile
-        USBWhitelistPath    = $USBWhitelist
-        LearningFilePath    = $LearningFile
-        EmergencyBypassPath = $EmergencyBypassFile
-        AlwaysAllowedVendors = $ALWAYS_ALLOWED_USB_VENDORS
-        HIDVendors          = if ($script:HIDVendors.Count -gt 0) { $script:HIDVendors } else { $TRUSTED_HID_VENDORS }
+        LogPath                 = $LogFile
+        USBWhitelistPath        = $USBWhitelist
+        LearningFilePath        = $LearningFile
+        EmergencyBypassPath     = $EmergencyBypassFile
+        AlwaysAllowedVendors    = $ALWAYS_ALLOWED_USB_VENDORS
+        HIDVendors              = if ($script:HIDVendors.Count -gt 0) { $script:HIDVendors } else { $TRUSTED_HID_VENDORS }
+        ContainerAllowCachePath = $ContainerAllowCacheFile
+        ContainerAllowTTLHours  = $CONTAINER_ALLOW_TTL_HOURS
     }
     $script:RegWatcher = Start-RegistryWatcher -Config $watcherConfig
     Write-LogMessage "Fast-path registry watcher started" -Level "SUCCESS"
@@ -1883,7 +2006,7 @@ function Start-RealtimeMonitoring {
     # WITHIN 1: secondary catch-all fires every 1 s (after Win32_PnPEntity exists,
     # i.e. after driver install); the registry watcher above handles pre-driver blocking.
     $query = "SELECT * FROM __InstanceCreationEvent WITHIN 1 WHERE TargetInstance ISA 'Win32_PnPEntity' AND TargetInstance.DeviceID LIKE 'USB\\VID%'"
-    $messageData = @{ LogPath = $LogFile; USBWhitelistPath = $USBWhitelist; ThreatDBPath = $ThreatDBFile; HIDVendorsPath = $HIDVendorsFile; LearningFilePath = $LearningFile; BasePath = $BasePath; ScriptAuthor = $ScriptAuthor; ScriptVersion = $ScriptVersion; MaxWhitelistDevices = $MaxWhitelistDevices; MutexTimeout = $MutexTimeout; AlwaysAllowedVendors = $ALWAYS_ALLOWED_USB_VENDORS; EmergencyBypassPath = $EmergencyBypassFile }
+    $messageData = @{ LogPath = $LogFile; USBWhitelistPath = $USBWhitelist; ThreatDBPath = $ThreatDBFile; HIDVendorsPath = $HIDVendorsFile; LearningFilePath = $LearningFile; BasePath = $BasePath; ScriptAuthor = $ScriptAuthor; ScriptVersion = $ScriptVersion; MaxWhitelistDevices = $MaxWhitelistDevices; MutexTimeout = $MutexTimeout; AlwaysAllowedVendors = $ALWAYS_ALLOWED_USB_VENDORS; EmergencyBypassPath = $EmergencyBypassFile; ContainerAllowCachePath = $ContainerAllowCacheFile; ContainerAllowTTLHours = $CONTAINER_ALLOW_TTL_HOURS }
     
     Register-WmiEvent -Query $query -SourceIdentifier "AutoLockdown_USBWatch" -MessageData $messageData -Action {
         $data = $Event.MessageData
@@ -1942,11 +2065,42 @@ function Start-RealtimeMonitoring {
             
             # Check always-allowed infrastructure devices from messageData
             $idUpper = $deviceId.ToUpper()
+            $isWmiInfra = $false
             foreach ($alVendor in $data.AlwaysAllowedVendors) {
                 if ($idUpper -match [regex]::Escape($alVendor)) {
-                    Add-Content -Path $data.LogPath -Value "[$ts] [SUCCESS] ALLOWED $($fullDev.FriendlyName) - Infrastructure device" -Force
-                    return
+                    $isWmiInfra = $true; break
                 }
+            }
+            if ($isWmiInfra) {
+                Add-Content -Path $data.LogPath -Value "[$ts] [SUCCESS] ALLOWED $($fullDev.FriendlyName) - Infrastructure device" -Force
+                # Seed container allow cache when a VID_322B device is seen via WMI
+                if ($deviceId -imatch '^USB\\VID_322B') {
+                    try {
+                        $cidProp = Get-PnpDeviceProperty -InstanceId $deviceId -KeyName "DEVPKEY_Device_ContainerId" -ErrorAction SilentlyContinue
+                        $cidVal  = if ($cidProp) { $cidProp.Data } else { $null }
+                        $cidStr  = if ($cidVal -is [System.Guid]) { "{$cidVal}" } elseif ($cidVal) { $cidVal.ToString() } else { $null }
+                        if ($cidStr -and $cidStr -match '^\{[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\}$') {
+                            # Load current cache, add/update entry, save
+                            $cacheEntries = @()
+                            if (Test-Path $data.ContainerAllowCachePath) {
+                                try { $cacheEntries = @((Get-Content $data.ContainerAllowCachePath -Raw -Encoding UTF8 | ConvertFrom-Json).Containers) } catch {}
+                            }
+                            $cidUpper  = $cidStr.ToUpper()
+                            $expiry    = (Get-Date).AddHours($data.ContainerAllowTTLHours).ToString("yyyy-MM-dd HH:mm:ss")
+                            $existing  = $cacheEntries | Where-Object { $_.ContainerId -ieq $cidUpper }
+                            if (-not $existing) { $cacheEntries += [PSCustomObject]@{ ContainerId = $cidUpper; Expires = $expiry } }
+                            else { $existing.Expires = $expiry }
+                            $cacheData = [PSCustomObject]@{ Version = $data.ScriptVersion; Updated = (Get-Date -Format "yyyy-MM-dd HH:mm:ss"); Containers = $cacheEntries }
+                            $cacheData | ConvertTo-Json -Depth 3 | Out-File $data.ContainerAllowCachePath -Encoding UTF8 -Force
+                            Add-Content -Path $data.LogPath -Value "[$ts] [INFO] ContainerAllow: seeded ContainerId=$cidStr from $deviceId" -Force
+                        } else {
+                            Add-Content -Path $data.LogPath -Value "[$ts] [INFO] ContainerAllow: ContainerId unavailable for $deviceId (not seeded)" -Force
+                        }
+                    } catch {
+                        Add-Content -Path $data.LogPath -Value "[$ts] [INFO] ContainerAllow: error reading ContainerId for $deviceId : $_" -Force
+                    }
+                }
+                return
             }
             
             if ($whitelist -contains $vidpid) { Add-Content -Path $data.LogPath -Value "[$ts] [SUCCESS] ALLOWED $($fullDev.FriendlyName) - Whitelisted" -Force; return }
@@ -1996,8 +2150,36 @@ function Start-RealtimeMonitoring {
                 Add-Content -Path $data.LogPath -Value "[$ts] [SUCCESS] ALLOWED $($fullDev.FriendlyName) - Learning mode" -Force
             }
             else {
-                Add-Content -Path $data.LogPath -Value "[$ts] [BLOCK] BLOCKED $($fullDev.FriendlyName) - Not whitelisted" -Force
-                Disable-PnpDevice -InstanceId $deviceId -Confirm:$false -ErrorAction SilentlyContinue
+                # --- Check container allow cache before final block ---
+                # Catches mode-switched modem devnodes (different VID/PID, same physical
+                # ContainerId as the VID_322B dongle that was allowed above).
+                $wmiContainerAllowed = $false
+                try {
+                    $cidProp2 = Get-PnpDeviceProperty -InstanceId $deviceId -KeyName "DEVPKEY_Device_ContainerId" -ErrorAction SilentlyContinue
+                    $cidVal2  = if ($cidProp2) { $cidProp2.Data } else { $null }
+                    $cidStr2  = if ($cidVal2 -is [System.Guid]) { "{$cidVal2}" } elseif ($cidVal2) { $cidVal2.ToString() } else { $null }
+                    if ($cidStr2 -and $cidStr2 -match '^\{[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\}$') {
+                        if (Test-Path $data.ContainerAllowCachePath) {
+                            try {
+                                $cacheRead = Get-Content $data.ContainerAllowCachePath -Raw -Encoding UTF8 | ConvertFrom-Json
+                                $cidUpper2 = $cidStr2.ToUpper()
+                                $match2    = $cacheRead.Containers | Where-Object { $_.ContainerId -ieq $cidUpper2 }
+                                if ($match2) {
+                                    $cacheExpiry2 = [DateTime]::Parse($match2.Expires)
+                                    if ((Get-Date) -lt $cacheExpiry2) {
+                                        $wmiContainerAllowed = $true
+                                        Add-Content -Path $data.LogPath -Value "[$ts] [SUCCESS] ALLOWED $($fullDev.FriendlyName) - ContainerAllow (same physical device as trusted VID_322B)" -Force
+                                    }
+                                }
+                            } catch {}
+                        }
+                    }
+                } catch {}
+
+                if (-not $wmiContainerAllowed) {
+                    Add-Content -Path $data.LogPath -Value "[$ts] [BLOCK] BLOCKED $($fullDev.FriendlyName) - Not whitelisted" -Force
+                    Disable-PnpDevice -InstanceId $deviceId -Confirm:$false -ErrorAction SilentlyContinue
+                }
             }
         }
         catch { Add-Content -Path $data.LogPath -Value "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] [ERROR] Event error: $_" -Force }
@@ -2048,7 +2230,37 @@ function Protect-USBDevice {
     if (-not $IsStartup -and (-not $Device.Class -or $Device.Status -eq "Unknown")) { for ($i = 0; $i -lt 20; $i++) { Start-Sleep -Milliseconds 500; $Device = Get-PnpDevice -InstanceId $Device.InstanceId -ErrorAction SilentlyContinue; if ($Device -and $Device.Class -and $Device.Status -ne "Unknown") { break } } }
     if (($Device.Class -eq "Keyboard" -or $Device.Class -eq "Mouse" -or $Device.Class -eq "HIDClass") -and (Test-TrustedHIDVendor -InstanceId $Device.InstanceId)) { Write-LogMessage "ALLOWED $($Device.FriendlyName) - Trusted HID" -Level "SUCCESS"; $script:Metrics.TotalAllowed++; return }
     # Check for always-allowed infrastructure devices (FTDI relay, JAC 5G dongle)
-    if (Test-AlwaysAllowedUSB -InstanceId $Device.InstanceId) { Write-LogMessage "ALLOWED $($Device.FriendlyName) - Infrastructure" -Level "SUCCESS"; $script:Metrics.TotalAllowed++; return }
+    if (Test-AlwaysAllowedUSB -InstanceId $Device.InstanceId) {
+        Write-LogMessage "ALLOWED $($Device.FriendlyName) - Infrastructure" -Level "SUCCESS"
+        $script:Metrics.TotalAllowed++
+        # Seed container allow cache when a VID_322B device is seen
+        if ($Device.InstanceId -imatch '^USB\\VID_322B') {
+            try {
+                $cidProp = Get-PnpDeviceProperty -InstanceId $Device.InstanceId -KeyName "DEVPKEY_Device_ContainerId" -ErrorAction SilentlyContinue
+                $cidVal  = if ($cidProp) { $cidProp.Data } else { $null }
+                $cidStr  = if ($cidVal -is [System.Guid]) { "{$cidVal}" } elseif ($cidVal) { $cidVal.ToString() } else { $null }
+                if ($cidStr -and $cidStr -match '^\{[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\}$') {
+                    $cacheEntries = @()
+                    if (Test-Path $ContainerAllowCacheFile) {
+                        try { $cacheEntries = @((Get-Content $ContainerAllowCacheFile -Raw -Encoding UTF8 | ConvertFrom-Json).Containers) } catch {}
+                    }
+                    $cidUpper = $cidStr.ToUpper()
+                    $expiry   = (Get-Date).AddHours($CONTAINER_ALLOW_TTL_HOURS).ToString("yyyy-MM-dd HH:mm:ss")
+                    $existing = $cacheEntries | Where-Object { $_.ContainerId -ieq $cidUpper }
+                    if (-not $existing) { $cacheEntries += [PSCustomObject]@{ ContainerId = $cidUpper; Expires = $expiry } }
+                    else { $existing.Expires = $expiry }
+                    $cacheData = [PSCustomObject]@{ Version = $ScriptVersion; Updated = (Get-Date -Format "yyyy-MM-dd HH:mm:ss"); Containers = $cacheEntries }
+                    $cacheData | ConvertTo-Json -Depth 3 | Out-File $ContainerAllowCacheFile -Encoding UTF8 -Force
+                    Write-LogMessage "ContainerAllow: seeded ContainerId=$cidStr from $($Device.InstanceId)" -Level "INFO"
+                } else {
+                    Write-LogMessage "ContainerAllow: ContainerId unavailable for $($Device.InstanceId) (not seeded)" -Level "INFO"
+                }
+            } catch {
+                Write-LogMessage "ContainerAllow: error reading ContainerId for $($Device.InstanceId) : $_" -Level "INFO"
+            }
+        }
+        return
+    }
     if ($vidpid -and $script:Whitelist -contains $vidpid) { Write-LogMessage "ALLOWED $($Device.FriendlyName) - Whitelisted" -Level "SUCCESS"; $script:Metrics.TotalAllowed++; return }
     # Handle PSCustomObject from JSON
     $threatInfo = $null
@@ -2058,7 +2270,33 @@ function Protect-USBDevice {
     if ($learningMode -eq "Learning") {
         if ($vidpid) { if (Add-ToWhitelist -VidPid $vidpid -DeviceName $Device.FriendlyName) { $script:Metrics.TotalLearned++ }; $data = Import-JsonSafe -Path $USBWhitelist; $script:Whitelist = if ($data) { $data.Devices } else { @() }; Write-LogMessage "ALLOWED $($Device.FriendlyName) - Learning" -Level "SUCCESS"; $script:Metrics.TotalAllowed++ }
     }
-    else { Deny-Device -Device $Device -Reason "Not whitelisted - Default Deny" }
+    else {
+        # Check container allow cache before final deny (mode-switched dongle devnodes)
+        $containerAllowed = $false
+        try {
+            $cidPropD = Get-PnpDeviceProperty -InstanceId $Device.InstanceId -KeyName "DEVPKEY_Device_ContainerId" -ErrorAction SilentlyContinue
+            $cidValD  = if ($cidPropD) { $cidPropD.Data } else { $null }
+            $cidStrD  = if ($cidValD -is [System.Guid]) { "{$cidValD}" } elseif ($cidValD) { $cidValD.ToString() } else { $null }
+            if ($cidStrD -and $cidStrD -match '^\{[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\}$') {
+                if (Test-Path $ContainerAllowCacheFile) {
+                    try {
+                        $cacheReadD = Get-Content $ContainerAllowCacheFile -Raw -Encoding UTF8 | ConvertFrom-Json
+                        $cidUpperD  = $cidStrD.ToUpper()
+                        $matchD     = $cacheReadD.Containers | Where-Object { $_.ContainerId -ieq $cidUpperD }
+                        if ($matchD) {
+                            $cacheExpiryD = [DateTime]::Parse($matchD.Expires)
+                            if ((Get-Date) -lt $cacheExpiryD) {
+                                $containerAllowed = $true
+                                Write-LogMessage "ALLOWED $($Device.FriendlyName) - ContainerAllow (same physical device as trusted VID_322B)" -Level "SUCCESS"
+                                $script:Metrics.TotalAllowed++
+                            }
+                        }
+                    } catch {}
+                }
+            }
+        } catch {}
+        if (-not $containerAllowed) { Deny-Device -Device $Device -Reason "Not whitelisted - Default Deny" }
+    }
 }
 
 # ============================================================================
