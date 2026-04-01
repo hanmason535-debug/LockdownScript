@@ -189,6 +189,8 @@ $MaxWhitelistDevices = 100
 $MutexTimeout = 30000
 $MinDiskSpaceMB = 10
 $CONTAINER_ALLOW_TTL_HOURS = 24
+# GUID validation pattern shared by all enforcement paths
+$CONTAINER_ID_GUID_PATTERN = '^\{[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\}$'
 
 # Script state
 $script:StartTime = Get-Date
@@ -1686,7 +1688,7 @@ function Start-RegistryWatcher {
         function Test-ValidContainerGuid {
             param([string]$Id)
             if (-not $Id) { return $false }
-            return $Id -match '^\{[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\}$'
+            return $Id -match $ContainerGuidPattern
         }
 
         function Load-ContainerCacheFast {
@@ -1997,6 +1999,7 @@ function Start-RealtimeMonitoring {
         HIDVendors              = if ($script:HIDVendors.Count -gt 0) { $script:HIDVendors } else { $TRUSTED_HID_VENDORS }
         ContainerAllowCachePath = $ContainerAllowCacheFile
         ContainerAllowTTLHours  = $CONTAINER_ALLOW_TTL_HOURS
+        ContainerGuidPattern    = $CONTAINER_ID_GUID_PATTERN
     }
     $script:RegWatcher = Start-RegistryWatcher -Config $watcherConfig
     Write-LogMessage "Fast-path registry watcher started" -Level "SUCCESS"
@@ -2006,7 +2009,7 @@ function Start-RealtimeMonitoring {
     # WITHIN 1: secondary catch-all fires every 1 s (after Win32_PnPEntity exists,
     # i.e. after driver install); the registry watcher above handles pre-driver blocking.
     $query = "SELECT * FROM __InstanceCreationEvent WITHIN 1 WHERE TargetInstance ISA 'Win32_PnPEntity' AND TargetInstance.DeviceID LIKE 'USB\\VID%'"
-    $messageData = @{ LogPath = $LogFile; USBWhitelistPath = $USBWhitelist; ThreatDBPath = $ThreatDBFile; HIDVendorsPath = $HIDVendorsFile; LearningFilePath = $LearningFile; BasePath = $BasePath; ScriptAuthor = $ScriptAuthor; ScriptVersion = $ScriptVersion; MaxWhitelistDevices = $MaxWhitelistDevices; MutexTimeout = $MutexTimeout; AlwaysAllowedVendors = $ALWAYS_ALLOWED_USB_VENDORS; EmergencyBypassPath = $EmergencyBypassFile; ContainerAllowCachePath = $ContainerAllowCacheFile; ContainerAllowTTLHours = $CONTAINER_ALLOW_TTL_HOURS }
+    $messageData = @{ LogPath = $LogFile; USBWhitelistPath = $USBWhitelist; ThreatDBPath = $ThreatDBFile; HIDVendorsPath = $HIDVendorsFile; LearningFilePath = $LearningFile; BasePath = $BasePath; ScriptAuthor = $ScriptAuthor; ScriptVersion = $ScriptVersion; MaxWhitelistDevices = $MaxWhitelistDevices; MutexTimeout = $MutexTimeout; AlwaysAllowedVendors = $ALWAYS_ALLOWED_USB_VENDORS; EmergencyBypassPath = $EmergencyBypassFile; ContainerAllowCachePath = $ContainerAllowCacheFile; ContainerAllowTTLHours = $CONTAINER_ALLOW_TTL_HOURS; ContainerGuidPattern = $CONTAINER_ID_GUID_PATTERN }
     
     Register-WmiEvent -Query $query -SourceIdentifier "AutoLockdown_USBWatch" -MessageData $messageData -Action {
         $data = $Event.MessageData
@@ -2079,8 +2082,7 @@ function Start-RealtimeMonitoring {
                         $cidProp = Get-PnpDeviceProperty -InstanceId $deviceId -KeyName "DEVPKEY_Device_ContainerId" -ErrorAction SilentlyContinue
                         $cidVal  = if ($cidProp) { $cidProp.Data } else { $null }
                         $cidStr  = if ($cidVal -is [System.Guid]) { "{$cidVal}" } elseif ($cidVal) { $cidVal.ToString() } else { $null }
-                        if ($cidStr -and $cidStr -match '^\{[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\}$') {
-                            # Load current cache, add/update entry, save
+                        if ($cidStr -and $cidStr -match $data.ContainerGuidPattern) {
                             $cacheEntries = @()
                             if (Test-Path $data.ContainerAllowCachePath) {
                                 try { $cacheEntries = @((Get-Content $data.ContainerAllowCachePath -Raw -Encoding UTF8 | ConvertFrom-Json).Containers) } catch {}
@@ -2158,7 +2160,7 @@ function Start-RealtimeMonitoring {
                     $cidProp2 = Get-PnpDeviceProperty -InstanceId $deviceId -KeyName "DEVPKEY_Device_ContainerId" -ErrorAction SilentlyContinue
                     $cidVal2  = if ($cidProp2) { $cidProp2.Data } else { $null }
                     $cidStr2  = if ($cidVal2 -is [System.Guid]) { "{$cidVal2}" } elseif ($cidVal2) { $cidVal2.ToString() } else { $null }
-                    if ($cidStr2 -and $cidStr2 -match '^\{[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\}$') {
+                    if ($cidStr2 -and $cidStr2 -match $data.ContainerGuidPattern) {
                         if (Test-Path $data.ContainerAllowCachePath) {
                             try {
                                 $cacheRead = Get-Content $data.ContainerAllowCachePath -Raw -Encoding UTF8 | ConvertFrom-Json
@@ -2239,7 +2241,7 @@ function Protect-USBDevice {
                 $cidProp = Get-PnpDeviceProperty -InstanceId $Device.InstanceId -KeyName "DEVPKEY_Device_ContainerId" -ErrorAction SilentlyContinue
                 $cidVal  = if ($cidProp) { $cidProp.Data } else { $null }
                 $cidStr  = if ($cidVal -is [System.Guid]) { "{$cidVal}" } elseif ($cidVal) { $cidVal.ToString() } else { $null }
-                if ($cidStr -and $cidStr -match '^\{[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\}$') {
+                if ($cidStr -and $cidStr -match $CONTAINER_ID_GUID_PATTERN) {
                     $cacheEntries = @()
                     if (Test-Path $ContainerAllowCacheFile) {
                         try { $cacheEntries = @((Get-Content $ContainerAllowCacheFile -Raw -Encoding UTF8 | ConvertFrom-Json).Containers) } catch {}
@@ -2277,7 +2279,7 @@ function Protect-USBDevice {
             $cidPropD = Get-PnpDeviceProperty -InstanceId $Device.InstanceId -KeyName "DEVPKEY_Device_ContainerId" -ErrorAction SilentlyContinue
             $cidValD  = if ($cidPropD) { $cidPropD.Data } else { $null }
             $cidStrD  = if ($cidValD -is [System.Guid]) { "{$cidValD}" } elseif ($cidValD) { $cidValD.ToString() } else { $null }
-            if ($cidStrD -and $cidStrD -match '^\{[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\}$') {
+            if ($cidStrD -and $cidStrD -match $CONTAINER_ID_GUID_PATTERN) {
                 if (Test-Path $ContainerAllowCacheFile) {
                     try {
                         $cacheReadD = Get-Content $ContainerAllowCacheFile -Raw -Encoding UTF8 | ConvertFrom-Json
