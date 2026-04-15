@@ -2517,8 +2517,9 @@ function Initialize-System {
             -AllowExtend -ExtendMinutes 5
         
         # Transition learning state to Enforced now that the timer has ended.
-        # This is critical when the user clicks "Finish Early" (returns $false):
-        # without this, the learning state file still contains the original expiry
+        # Show-TimerForm returns $true when the timer completes naturally, or $false
+        # when the user clicks "Finish Early". Either way, learning must end now.
+        # Without this, the learning state file still contains the original expiry
         # time, so the system remains in learning mode after the form closes.
         $startedDTForEnforce = $StartedDT
         $expiresDTForEnforce = Get-Date

@@ -507,7 +507,7 @@ function Test-ThreatDatabase {
     
     try {
         $data = Import-JsonSafe -Path $ThreatDBFile
-        if (-not $data) { throw "Unable to load threat database" }
+        if (-not $data) { throw "Threat database file and all backups failed to load or are corrupted" }
         $count = if ($data.Threats -is [hashtable]) {
             $data.Threats.Count
         }
@@ -640,7 +640,7 @@ function Test-ContainerAllowCache {
     
     try {
         $data = Import-JsonSafe -Path $ContainerAllowCacheFile
-        if (-not $data) { throw "Unable to load container cache" }
+        if (-not $data) { throw "Container cache file and all backups failed to load or are corrupted" }
         $count = if ($data.Containers) { $data.Containers.Count } else { 0 }
         
         Write-Check -Component "Container Allow Cache" -Status "PASS" -Message "$count allowed container(s)" -Detail "JAC 5G dongle mode-switching support"
