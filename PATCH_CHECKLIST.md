@@ -1,6 +1,6 @@
-# AutoLockdown v4.9.1 Patch Checklist
+# AutoLockdown v4.9.0 Patch Checklist
 
-This file documents every code and documentation change applied in the v4.9.1 patch, provides exact search patterns to validate each change, defines acceptance criteria, and gives rollback guidance.
+This file documents every code and documentation change applied in the v4.9.0 patch, provides exact search patterns to validate each change, defines acceptance criteria, and gives rollback guidance.
 
 ---
 

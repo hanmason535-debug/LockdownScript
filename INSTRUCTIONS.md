@@ -92,7 +92,7 @@ Learning Window: ACTIVE (expires HH:MM)
 > ⚠️ If you see **REBOOT REQUIRED**: Reboot the machine immediately, then run `Verify_Lockdown.ps1` to confirm.
 
 #### Custom Learning Window
-To use a different learning duration (default is 3 hours / 180 minutes):
+To use a different learning duration (default is 5 minutes):
 ```powershell
 # 4-hour learning window
 .\AutoLockdown.ps1 -Initialize -LearningWindowMinutes 240
@@ -104,7 +104,7 @@ To use a different learning duration (default is 3 hours / 180 minutes):
 #### Dry Run (Preview)
 See what would happen without making any changes:
 ```powershell
-.\AutoLockdown.ps1 -Initialize -LearningWindowMinutes 180 -WhatIf
+.\AutoLockdown.ps1 -Initialize -LearningWindowMinutes 5 -WhatIf
 ```
 
 ### Step 4 — Verify Deployment (MANDATORY)
@@ -127,7 +127,7 @@ See what would happen without making any changes:
 
 | Aspect | Detail |
 |---|---|
-| **Default duration** | 3 hours (180 minutes) |
+| **Default duration** | 5 minutes |
 | **What it does** | Auto-whitelists any USB device plugged in during this period |
 | **After expiry** | Auto-transitions to Enforcement mode — only whitelisted devices allowed |
 | **Survives reboots** | Yes — the window resumes where it left off if the NUC restarts |
@@ -196,7 +196,7 @@ Shows a full GUI dashboard with USB device details, network status, and mode inf
 | `-DeviceName` | String | `"Manually Added"` | Friendly name for manually added device |
 | `-ShowStatus` | Switch | — | Show security status GUI dashboard |
 | `-Silent` | Switch | — | Suppress log messages to console and skip GUI dialogs; initialization summary still printed |
-| `-LearningWindowMinutes` | Int | `180` | Learning window duration in minutes (used with `-Initialize`) |
+| `-LearningWindowMinutes` | Int | `5` | Learning window duration in minutes (used with `-Initialize`) |
 | `-ExtendMinutes` | Int | `60` | Duration in minutes when extending learning (used with `-ExtendLearning`) |
 | `-RebootDelaySeconds` | Int | `60` | Delay before reboot prompt (seconds) |
 | `-EnableWatchdog` | Switch | — | Enable watchdog timer for monitor self-healing |

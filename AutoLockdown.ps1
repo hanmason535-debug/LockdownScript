@@ -13,22 +13,11 @@
     
 .NOTES
     File Name : AutoLockdown.ps1
-    Version   : 4.9.1
+    Version   : 4.9.0
     Author    : Meet Gandhi (Product Security Engineer)
     Created   : April 2026
     Requires  : PowerShell 5.1+, Administrator privileges
     
-    Changelog v4.9.1:
-    - Fixed Update-LearningMode unsafe finally block: if WaitOne timed out, calling
-      ReleaseMutex on an unowned mutex threw System.ApplicationException, which could
-      crash the monitor service. Changed to safe try/catch/finally pattern matching
-      all other mutex sites in the codebase.
-    - Fixed WMI event handler writing USB whitelist in UTF-16LE (Out-File default)
-      instead of UTF-8. After the WMI handler learned a device, all subsequent
-      whitelist reads (fast-path watcher, Protect-USBDevice, WMI handler itself)
-      would fail because they specify -Encoding UTF8, causing every whitelisted
-      device to be blocked in enforcement mode. Added -Encoding UTF8.
-
     Changelog v4.9.0:
     - Changed default learning window from 180 minutes to 5 minutes for faster deployment.
     - Fixed "Finish Early" button bug: clicking Finish Early during learning countdown now
@@ -36,10 +25,14 @@
       remaining in learning mode after the timer window closes.
     - Fixed Protect-USBDevice threat lookup null-reference when ThreatMap is a
       PSCustomObject and the VID/PID key does not exist (added null guard).
-    - Fixed Reset_Lockdown.ps1 using raw ConvertFrom-Json on System_Backup.json without
-      try/catch protection (wrapped in safe error handling).
-    - Fixed Verify_Lockdown.ps1 Test-ThreatDatabase using raw ConvertFrom-Json outside
-      Import-JsonSafe (wrapped in try/catch).
+    - Fixed Update-LearningMode unsafe mutex finally block: if WaitOne timed out, calling
+      ReleaseMutex on an unowned mutex threw System.ApplicationException, crashing the
+      monitor service. Changed to safe try/catch/finally pattern.
+    - Fixed WMI event handler writing USB whitelist in UTF-16LE (Out-File default)
+      instead of UTF-8, which corrupted all subsequent whitelist reads and caused
+      every whitelisted device to be blocked in enforcement mode.
+    - Fixed Verify_Lockdown.ps1 Test-ThreatDatabase and Test-ContainerAllowCache using
+      raw ConvertFrom-Json outside Import-JsonSafe (wrapped in safe fallback reads).
 
     Changelog v4.8.0:
     - Fixed boot-time blocking of JAC dongle modems by evaluating ContainerId during startup scan.
@@ -160,7 +153,7 @@ if (-not $Monitor) {
 # Encryption Scope (LocalMachine allows authorized admins/SYSTEM to decrypt)
 $DPAPI_SCOPE = [System.Security.Cryptography.DataProtectionScope]::LocalMachine
 
-$ScriptVersion = "4.9.1"
+$ScriptVersion = "4.9.0"
 $ProductName = "AutoLockdown"
 
 

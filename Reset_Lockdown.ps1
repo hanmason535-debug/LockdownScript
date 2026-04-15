@@ -12,6 +12,9 @@
     Created   : April 2026
     Requires  : PowerShell 5.1+, Administrator privileges
     
+    Changelog v4.9.0:
+    - Version bump to match AutoLockdown v4.9.0.
+    
 .EXAMPLE
     .\Reset_Lockdown.ps1
     

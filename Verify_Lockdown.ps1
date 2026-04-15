@@ -12,6 +12,12 @@
     Created   : April 2026
     Requires  : PowerShell 5.1+, Administrator privileges
     
+    Changelog v4.9.0:
+    - Version bump to match AutoLockdown v4.9.0.
+    - Fixed Test-ThreatDatabase to use Import-JsonSafe instead of raw ConvertFrom-Json
+      for consistent fallback-to-backup behavior.
+    - Fixed Test-ContainerAllowCache to use Import-JsonSafe instead of raw ConvertFrom-Json.
+    
 .EXAMPLE
     .\Verify_Lockdown.ps1
     
