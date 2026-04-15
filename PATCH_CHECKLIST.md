@@ -1,244 +1,186 @@
-# AutoLockdown v4.8.0 Patch Checklist
+# AutoLockdown v4.9.0 Patch Checklist
 
-This file documents every code and documentation change applied in the v4.8.0 patch, provides exact search patterns to validate each change, defines acceptance criteria, and gives rollback guidance.
+This file documents every code and documentation change applied in the v4.9.0 patch, provides exact search patterns to validate each change, defines acceptance criteria, and gives rollback guidance.
 
 ---
 
-## 1. Version Bump: 4.7.0 → 4.8.0
+## 1. Version Bump: 4.8.0 → 4.9.0
 
 ### Search Patterns (run from repo root)
 
 ```powershell
 # PowerShell / Select-String
-Select-String -Path *.ps1, *.md -Pattern "4\.7\.0"
+Select-String -Path *.ps1, *.md -Pattern "4\.8\.0"
 
 # Bash / grep
-grep -rn "4\.7\.0" .
+grep -rn "4\.8\.0" .
 ```
 
 ### Expected Findings After Patch
 
-The pattern `4\.7\.0` must return **zero** matches in the primary files.  
-The version `4.8.0` must appear in all of the following locations:
+The pattern `4\.8\.0` must return **only** changelog references in the primary files.  
+The version `4.9.0` must appear in all of the following locations:
 
 | File | Location | Expected Value |
 |------|----------|----------------|
-| `AutoLockdown.ps1` | `.SYNOPSIS` line 3 | `AutoLockdown v4.8.0` |
-| `AutoLockdown.ps1` | `.NOTES` `Version` field | `4.8.0` |
-| `AutoLockdown.ps1` | `$ScriptVersion` variable | `"4.8.0"` |
-| `Reset_Lockdown.ps1` | `.SYNOPSIS` line 3 | `Reset_Lockdown.ps1 v4.8.0` |
-| `Reset_Lockdown.ps1` | `.NOTES` `Version` field | `4.8.0` |
-| `Reset_Lockdown.ps1` | `$ScriptVersion` variable | `"4.8.0"` |
-| `Verify_Lockdown.ps1` | `.SYNOPSIS` line 3 | `Verify_Lockdown.ps1 v4.8.0` |
-| `Verify_Lockdown.ps1` | `.NOTES` `Version` field | `4.8.0` |
-| `Verify_Lockdown.ps1` | `$ScriptVersion` variable | `"4.8.0"` |
-| `INSTRUCTIONS.md` | Heading `**Version X.Y.Z**` | `4.8.0` |
-| `INSTRUCTIONS.md` | Footer line | `AutoLockdown v4.8.0` |
-| `AutoLockdown_Context.md` | `**Version Reference:**` | `v4.8.0` |
+| `AutoLockdown.ps1` | `.SYNOPSIS` line 3 | `AutoLockdown v4.9.0` |
+| `AutoLockdown.ps1` | `.NOTES` `Version` field | `4.9.0` |
+| `AutoLockdown.ps1` | `$ScriptVersion` variable | `"4.9.0"` |
+| `Reset_Lockdown.ps1` | `.SYNOPSIS` line 3 | `Reset_Lockdown.ps1 v4.9.0` |
+| `Reset_Lockdown.ps1` | `.NOTES` `Version` field | `4.9.0` |
+| `Reset_Lockdown.ps1` | `$ScriptVersion` variable | `"4.9.0"` |
+| `Verify_Lockdown.ps1` | `.SYNOPSIS` line 3 | `Verify_Lockdown.ps1 v4.9.0` |
+| `Verify_Lockdown.ps1` | `.NOTES` `Version` field | `4.9.0` |
+| `Verify_Lockdown.ps1` | `$ScriptVersion` variable | `"4.9.0"` |
+| `INSTRUCTIONS.md` | Heading `**Version X.Y.Z**` | `4.9.0` |
+| `INSTRUCTIONS.md` | Footer line | `AutoLockdown v4.9.0` |
+| `AutoLockdown_Context.md` | `**Version Reference:**` | `v4.9.0` |
 
 ### Validation Commands
 
 ```powershell
-# Confirm all scripts self-report 4.8.0
+# Confirm all scripts self-report 4.9.0
 $scripts = @("AutoLockdown.ps1", "Reset_Lockdown.ps1", "Verify_Lockdown.ps1")
 foreach ($s in $scripts) {
     $ver = (Select-String -Path $s -Pattern '\$ScriptVersion\s*=\s*"([^"]+)"').Matches[0].Groups[1].Value
-    Write-Host "$s  =>  $ver" -ForegroundColor $(if ($ver -eq "4.8.0") {"Green"} else {"Red"})
+    Write-Host "$s  =>  $ver" -ForegroundColor $(if ($ver -eq "4.9.0") {"Green"} else {"Red"})
 }
-# Expected output: all three lines show "4.8.0" in green
+# Expected output: all three lines show "4.9.0" in green
 ```
 
 ---
 
-## 2. HID Allow-Logic Hardening (Fast-Path Registry Watcher)
+## 2. Default Learning Window Changed (180 → 5 minutes)
+
+### Search Pattern
+
+```powershell
+Select-String -Path AutoLockdown.ps1 -Pattern "LearningWindowMinutes\s*=\s*\d+"
+```
+
+### Expected Result
+
+The `$LearningWindowMinutes` default value must be `5` (not `180`).
+
+---
+
+## 3. Finish Early Button Bug Fix
 
 ### Problem Statement
 
-In the previous fast-path logic, when a trusted HID vendor device was detected but the
-Windows registry `Class` value had not yet been written (device still enumerating), the
-device fell through to the whitelist/block decision.  In enforcement mode with a freshly
-plugged-in keyboard or mouse that was **not** in the whitelist (e.g., a replacement
-keyboard), this caused a transient block.  The WMI secondary handler then saw the device
-as already disabled (`Status = Error`) and skipped re-evaluation, leaving the keyboard or
-mouse permanently blocked until the next reboot or re-initialization.
+When the learning timer countdown was in progress and the user clicked "Finish Early",
+the timer form closed but the learning state JSON file was NOT updated. The system
+continued in "Learning" mode with the original expiry time, allowing USB devices that
+should have been blocked. Users believed the system was protected, but learning mode
+was still active.
 
-This affects both USB-A and USB-C connections equally (Windows class assignment is
-connector-agnostic).
-
-### Search Pattern — Locate the Fast-Path HID Block
+### Search Pattern
 
 ```powershell
-Select-String -Path AutoLockdown.ps1 -Pattern "Start-RegistryWatcher|HID_CLASS_GUIDS|knownInstanceIds\.Remove"
+Select-String -Path AutoLockdown.ps1 -Pattern "learningResult|Finish Early|transitioning to ENFORCED"
 ```
 
-### Expected Code Block After Patch
+### Expected Code After Patch
 
-The section immediately following the infrastructure-allow check should contain:
-
-1. Reads **both** `Class` **and** `ClassGUID` from the instance registry key.
-2. Defines `$HID_CLASS_GUIDS` with three GUIDs:
-   - `{4D36E96B-E325-11CE-BFC1-08002BE10318}` — Keyboard
-   - `{4D36E96F-E325-11CE-BFC1-08002BE10318}` — Mouse / Pointer
-   - `{745A17A0-74D3-11D0-B6FE-00A0C90F57DA}` — Human Interface Device
-3. First allow check: `$isHIDVendor -and $regClass -and $HID_REGISTRY_CLASSES -contains $regClass`
-4. Second allow check (ClassGUID fallback): `$isHIDVendor -and $regClassGuid -and $HID_CLASS_GUIDS -contains $regClassGuid`
-5. **Defer / re-queue** check: `$isHIDVendor -and (-not $regClass) -and (-not $regClassGuid)` →  
-   removes instance from `$knownInstanceIds` and `continue`s so the next 250 ms poll re-evaluates.
-
-### Validation Commands
-
-```powershell
-# Confirm ClassGUID constant is present
-Select-String -Path AutoLockdown.ps1 -Pattern "4D36E96B"
-Select-String -Path AutoLockdown.ps1 -Pattern "4D36E96F"
-Select-String -Path AutoLockdown.ps1 -Pattern "745A17A0"
-
-# Confirm defer logic is present
-Select-String -Path AutoLockdown.ps1 -Pattern "DEFERRED"
-
-# Confirm knownInstanceIds.Remove is present in watcher
-Select-String -Path AutoLockdown.ps1 -Pattern "knownInstanceIds\.Remove"
-```
-
-All five commands must return at least one match.
+After `Show-TimerForm` returns, the code must:
+1. Capture the return value (timer completed = `$true`, Finish Early = `$false`)
+2. Call `Set-LearningState -Mode "Enforced"` to immediately transition
+3. Log the transition with an appropriate message
 
 ---
 
-## 3. Acceptance Test Matrix
+## 4. Bug Fixes
 
-### 3.1 Version Acceptance
+### 4.1 PSCustomObject Threat Lookup (AutoLockdown.ps1)
+
+The `Protect-USBDevice` function previously accessed `$script:ThreatMap.PSObject.Properties[$vidpid].Value`
+directly, which throws a null-reference if the key does not exist. Fixed to use `.Match()` with
+a count guard, consistent with the WMI handler.
+
+### 4.2 Raw ConvertFrom-Json in Verify_Lockdown.ps1
+
+`Test-ThreatDatabase` and `Test-ContainerAllowCache` previously used raw
+`Get-Content | ConvertFrom-Json` instead of `Import-JsonSafe`. Fixed to use
+`Import-JsonSafe` for consistent fallback-to-backup behavior.
+
+### 4.3 Unsafe Mutex Release in Update-LearningMode (AutoLockdown.ps1)
+
+The `finally` block at the end of `Update-LearningMode` called `$mutex.ReleaseMutex()`
+directly without try/catch protection. If `WaitOne` timed out (returned `$false`), calling
+`ReleaseMutex()` on an unowned mutex throws `System.ApplicationException`, which propagated
+unhandled to the callers (Start-RealtimeMonitoring, Protect-USBDevice), potentially crashing
+the monitor service. Fixed to use the same safe `try { $mutex.ReleaseMutex() } catch {} finally { $mutex.Dispose() }`
+pattern used by all other mutex sites in the codebase.
+
+#### Search Pattern
+
+```powershell
+Select-String -Path AutoLockdown.ps1 -Pattern "finally \{ try \{ \`$mutex\.ReleaseMutex\(\)" | Measure-Object
+# Expected: Count = 9 (all mutex sites now use safe pattern; zero use the unsafe bare pattern)
+```
+
+### 4.4 WMI Handler Whitelist Write Uses Wrong Encoding (AutoLockdown.ps1)
+
+The WMI event handler's learning-mode whitelist write used `Out-File ... -Force` without
+`-Encoding UTF8`. In PowerShell 5.1, `Out-File` defaults to UTF-16LE. After the WMI handler
+learned a device, the whitelist file was written in UTF-16LE, but all readers (fast-path
+watcher `Get-WhitelistFast`, `Import-JsonSafe`, subsequent WMI reads) specify `-Encoding UTF8`.
+Reading UTF-16LE as UTF-8 produces garbled data, causing `ConvertFrom-Json` to throw,
+returning an empty whitelist. Result: every whitelisted device would be blocked after the
+WMI handler learned even one device. Fixed by adding `-Encoding UTF8`.
+
+#### Search Pattern
+
+```powershell
+Select-String -Path AutoLockdown.ps1 -Pattern "Out-File \`$data\.USBWhitelistPath" 
+# Expected: line must contain "-Encoding UTF8"
+```
+
+---
+
+## 5. Acceptance Test Matrix
+
+### 5.1 Version Acceptance
 
 | Check | Command | Expected Output |
 |-------|---------|-----------------|
-| AutoLockdown version | `(.\AutoLockdown.ps1 -ShowStatus 2>&1)[0]` or `Select-String AutoLockdown.ps1 '\$ScriptVersion'` | `4.8.0` |
-| Reset version | `Select-String Reset_Lockdown.ps1 '\$ScriptVersion'` | `4.8.0` |
-| Verify version | `Select-String Verify_Lockdown.ps1 '\$ScriptVersion'` | `4.8.0` |
-| Fast-Path Watcher check | `.\Verify_Lockdown.ps1` | `Fast-Path Watcher: PASS … monitor v4.8.0` |
+| AutoLockdown version | `Select-String AutoLockdown.ps1 '\$ScriptVersion'` | `4.9.0` |
+| Reset version | `Select-String Reset_Lockdown.ps1 '\$ScriptVersion'` | `4.9.0` |
+| Verify version | `Select-String Verify_Lockdown.ps1 '\$ScriptVersion'` | `4.9.0` |
+| Default learning window | `Select-String AutoLockdown.ps1 'LearningWindowMinutes\s*=\s*\d+'` | `5` |
 
-### 3.2 HID Behavior Test Matrix
+### 5.2 Finish Early Test
 
-| Scenario | Device | Expected Result | How to Verify |
-|----------|--------|-----------------|---------------|
-| USB-A direct | Standard keyboard (trusted VID) | **ALLOWED** — `[SUCCESS] ALLOWED … Trusted HID` in Security.log | Plug in, check log |
-| USB-A direct | Standard mouse (trusted VID) | **ALLOWED** — `[SUCCESS] ALLOWED … Trusted HID` in Security.log | Plug in, check log |
-| USB-C direct | Keyboard via USB-C port | **ALLOWED** — same log entry | Plug in via USB-C, check log |
-| USB-C direct | Mouse via USB-C port | **ALLOWED** — same log entry | Plug in via USB-C, check log |
-| USB-C hub/dock | Keyboard via dock | **ALLOWED** — same log entry | Plug in via dock, check log |
-| USB-C hub/dock | Mouse via dock | **ALLOWED** — same log entry | Plug in via dock, check log |
-| Any port | iPhone (VID_05AC, class=Image) | **BLOCKED** — `[BLOCK] BLOCKED … enforcement (fast-path)` or WMI block | Plug in, check log |
-| Any port | Android phone (MTP, class=WPD) | **BLOCKED** — fast-path or WMI block | Plug in, check log |
-| Any port | USB Rubber Ducky (VID_03EB&PID_2403) | **BLOCKED** — `[BLOCK] BLOCKED … Threat:` | Check ThreatDB match |
-| Any port | Bash Bunny (VID_F000&PID_CAFE) | **BLOCKED** — threat block | Check ThreatDB match |
-| Any port | O.MG Cable (VID_1D6B&PID_0104) | **BLOCKED** — threat block | Check ThreatDB match |
-| Any port | FTDI relay (VID_0403) | **ALLOWED** — `[SUCCESS] ALLOWED … Infrastructure` | Plug in, check log |
-| Any port | JAC 5G dongle (VID_322B) | **ALLOWED** — `[SUCCESS] ALLOWED … Infrastructure` | Plug in, check log |
-
-### 3.3 Log Verification Commands
-
-```powershell
-# View last 30 lines of security log
-Get-Content C:\ProgramData\AutoLockdown\Security.log -Tail 30
-
-# Filter for HID allow events
-Get-Content C:\ProgramData\AutoLockdown\Security.log | Where-Object { $_ -match "Trusted HID|HIDClass" }
-
-# Filter for fast-path defer events
-Get-Content C:\ProgramData\AutoLockdown\Security.log | Where-Object { $_ -match "DEFERRED" }
-
-# Filter for ContainerAllow seed events (new in 4.8.0)
-Get-Content C:\ProgramData\AutoLockdown\Security.log | Where-Object { $_ -match "Seeded Jac ContainerId" }
-
-# Filter for ContainerAllow match events (new in 4.8.0)
-Get-Content C:\ProgramData\AutoLockdown\Security.log | Where-Object { $_ -match "ContainerId match" }
-
-# Filter for block events
-Get-Content C:\ProgramData\AutoLockdown\Security.log | Where-Object { $_ -match "\[BLOCK\]" }
-```
+| Scenario | Expected Result | How to Verify |
+|----------|-----------------|---------------|
+| Timer expires naturally | Learning state set to "Enforced" | Check Learning_State.json |
+| User clicks Finish Early | Learning state set to "Enforced" immediately | Check Learning_State.json |
+| User extends (+5 min) then timer expires | Learning state set to "Enforced" | Check Learning_State.json |
 
 ---
 
-## 4. Post-Deploy HID Validation Steps (Operator Guide)
+## 6. Rollback Notes
 
-Run these steps after deploying v4.8.0 and before leaving the site:
-
-1. **Run Verify_Lockdown:**
-   ```powershell
-   .\Verify_Lockdown.ps1
-   ```
-   Confirm: `Status: HEALTHY`, `Fast-Path Watcher: PASS`, `Errors: 0`.
-
-2. **Unplug and re-plug the keyboard:**
-   Wait 5 seconds. Keyboard input must be responsive. Check the log for `[SUCCESS] ALLOWED … Trusted HID`.
-
-3. **Unplug and re-plug the mouse:**
-   Same as above.
-
-4. **If using a USB-C dock or hub:**
-   Disconnect and reconnect the dock. All HID devices attached via dock must recover automatically.
-
-5. **Plug in a test USB flash drive (not whitelisted):**
-   Drive must appear blocked in the log (`[BLOCK]`) within 1 second. The drive should not mount in Explorer.
-
-6. **Check for DEFERRED log entries:**
-   If any `[DEFERRED]` lines appear for your keyboard or mouse, confirm they are followed by a corresponding `[SUCCESS] ALLOWED` entry within the next 500 ms (two polls). If not, file a support issue.
-
----
-
-## 5. Rollback Notes
-
-If this patch needs to be reverted, apply the following changes manually or via `git revert`:
-
-### Version Rollback (4.8.0 → 4.7.0)
+### Version Rollback (4.9.0 → 4.8.0)
 
 ```powershell
 # In each file, replace version string
-(Get-Content AutoLockdown.ps1)  -replace "4\.8\.0", "4.7.0" | Set-Content AutoLockdown.ps1
-(Get-Content Reset_Lockdown.ps1) -replace "4\.8\.0", "4.7.0" | Set-Content Reset_Lockdown.ps1
-(Get-Content Verify_Lockdown.ps1) -replace "4\.8\.0", "4.7.0" | Set-Content Verify_Lockdown.ps1
-(Get-Content INSTRUCTIONS.md)   -replace "4\.8\.0", "4.7.0" | Set-Content INSTRUCTIONS.md
+(Get-Content AutoLockdown.ps1)  -replace "4\.9\.0", "4.8.0" | Set-Content AutoLockdown.ps1
+(Get-Content Reset_Lockdown.ps1) -replace "4\.9\.0", "4.8.0" | Set-Content Reset_Lockdown.ps1
+(Get-Content Verify_Lockdown.ps1) -replace "4\.9\.0", "4.8.0" | Set-Content Verify_Lockdown.ps1
+(Get-Content INSTRUCTIONS.md)   -replace "4\.9\.0", "4.8.0" | Set-Content INSTRUCTIONS.md
 ```
-
-### HID Logic Rollback
-
-Locate the section starting with `# --- Check trusted HID vendors with registry-class guard ---`
-in `AutoLockdown.ps1` (inside the `Start-RegistryWatcher` function) and replace the
-hardened block with the original logic:
-
-```powershell
-# Original pre-patch logic (v4.6.0):
-$regClass = $null
-try {
-    $regClass = (Get-ItemProperty $instanceKey.PSPath -Name "Class" -ErrorAction SilentlyContinue).Class
-} catch {}
-
-$isHIDVendor = $false
-foreach ($vendor in $HIDVendors) {
-    if ($idUpper -match [regex]::Escape($vendor.ToUpper())) { $isHIDVendor = $true; break }
-}
-if ($isHIDVendor -and $regClass -and $HID_REGISTRY_CLASSES -contains $regClass) {
-    Write-WatcherLog "ALLOWED $vidpid - Trusted HID vendor" -Level "SUCCESS"
-    continue
-}
-# If vendor is in the HID list but:
-#   - Class value is not yet set (device still enumerating), OR
-#   - Class is non-HID (e.g. Apple iPhone: VID_05AC, class=Image/WPD)
-# fall through to the whitelist/block decision.
-```
-
-> ⚠️ **Rollback Warning:** Reverting the HID logic change re-introduces the transient block
-> issue for legitimate keyboards/mice on first plug-in when not already in the whitelist.
-> Only roll back if the patch itself causes issues; document the reason for the rollback.
 
 ---
 
-## 6. Git Reference
+## 7. Git Reference
 
 ```bash
 # Show files changed in this patch
-git diff --name-only HEAD~1
+git diff --name-only v4.8.0..HEAD
 
 # Show full diff
-git diff HEAD~1
+git diff v4.8.0..HEAD
 
 # Revert this patch commit
 git revert HEAD

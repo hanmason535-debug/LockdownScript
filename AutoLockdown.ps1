@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    AutoLockdown v4.8.0 - Enterprise USB Security Hardening Suite
+    AutoLockdown v4.9.0 - Enterprise USB Security Hardening Suite
 .DESCRIPTION
     Production-grade USB security enforcement with intelligent learning mode,
     threat detection, and comprehensive monitoring capabilities.
@@ -13,11 +13,27 @@
     
 .NOTES
     File Name : AutoLockdown.ps1
-    Version   : 4.8.0
+    Version   : 4.9.0
     Author    : Meet Gandhi (Product Security Engineer)
     Created   : April 2026
     Requires  : PowerShell 5.1+, Administrator privileges
     
+    Changelog v4.9.0:
+    - Changed default learning window from 180 minutes to 5 minutes for faster deployment.
+    - Fixed "Finish Early" button bug: clicking Finish Early during learning countdown now
+      immediately transitions learning state to "Enforced", preventing the system from
+      remaining in learning mode after the timer window closes.
+    - Fixed Protect-USBDevice threat lookup null-reference when ThreatMap is a
+      PSCustomObject and the VID/PID key does not exist (added null guard).
+    - Fixed Update-LearningMode unsafe mutex finally block: if WaitOne timed out, calling
+      ReleaseMutex on an unowned mutex threw System.ApplicationException, crashing the
+      monitor service. Changed to safe try/catch/finally pattern.
+    - Fixed WMI event handler writing USB whitelist in UTF-16LE (Out-File default)
+      instead of UTF-8, which corrupted all subsequent whitelist reads and caused
+      every whitelisted device to be blocked in enforcement mode.
+    - Fixed Verify_Lockdown.ps1 Test-ThreatDatabase and Test-ContainerAllowCache using
+      raw ConvertFrom-Json outside Import-JsonSafe (wrapped in safe fallback reads).
+
     Changelog v4.8.0:
     - Fixed boot-time blocking of JAC dongle modems by evaluating ContainerId during startup scan.
     - Mitigated JSON file corruption race condition by introducing Mutex locking and fallback .bak1/.bak2 save routines for ContainerAllowCache.json.
@@ -90,9 +106,9 @@
     - Enhanced logging with rotation and compression
     
 .EXAMPLE
-    .\AutoLockdown.ps1 -Initialize -LearningWindowMinutes 180
+    .\AutoLockdown.ps1 -Initialize -LearningWindowMinutes 5
     
-    Initializes system with 3-hour learning window
+    Initializes system with 5-minute learning window (default)
 .EXAMPLE
     .\AutoLockdown.ps1 -Monitor
     
@@ -116,7 +132,7 @@ param(
     [string]$DeviceName = "Manually Added",
     [switch]$ShowStatus,
     [switch]$Silent,
-    [int]$LearningWindowMinutes = 180,
+    [int]$LearningWindowMinutes = 5,
     [int]$RebootDelaySeconds = 60,
     [switch]$EnableWatchdog,
     [switch]$EnableHealthCheck,
@@ -137,7 +153,7 @@ if (-not $Monitor) {
 # Encryption Scope (LocalMachine allows authorized admins/SYSTEM to decrypt)
 $DPAPI_SCOPE = [System.Security.Cryptography.DataProtectionScope]::LocalMachine
 
-$ScriptVersion = "4.8.0"
+$ScriptVersion = "4.9.0"
 $ProductName = "AutoLockdown"
 
 
@@ -1298,7 +1314,7 @@ function Update-LearningMode {
         return "Enforced"
     }
     catch { return "Enforced" }
-    finally { $mutex.ReleaseMutex(); $mutex.Dispose() }
+    finally { try { $mutex.ReleaseMutex() } catch {} finally { $mutex.Dispose() } }
 }
 
 # ============================================================================
@@ -2218,7 +2234,7 @@ function Start-RealtimeMonitoring {
                             $existingCreated = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
                             try { if (Test-Path $data.USBWhitelistPath) { $wlRaw = Get-Content $data.USBWhitelistPath -Raw -Encoding UTF8; if ($wlRaw.Trim().StartsWith("{")) { $existingCreated = ($wlRaw | ConvertFrom-Json).Created } } } catch {}
                             $wlData = @{ Created = $existingCreated; Version = $data.ScriptVersion; Author = $data.ScriptAuthor; Devices = $whitelist }
-                            $wlData | ConvertTo-Json -Depth 3 | Out-File $data.USBWhitelistPath -Force
+                            $wlData | ConvertTo-Json -Depth 3 | Out-File $data.USBWhitelistPath -Force -Encoding UTF8
                             Add-Content -Path $data.LogPath -Value "[$ts] [LEARNED] LEARNED $($fullDev.FriendlyName) - $vidpid" -Force
                         }
                     }
@@ -2374,7 +2390,7 @@ function Protect-USBDevice {
     if ($vidpid -and $script:Whitelist -contains $vidpid) { Write-LogMessage "ALLOWED $($Device.FriendlyName) - Whitelisted" -Level "SUCCESS"; $script:Metrics.TotalAllowed++; return }
     # Handle PSCustomObject from JSON
     $threatInfo = $null
-    if ($vidpid) { if ($script:ThreatMap -is [hashtable]) { if ($script:ThreatMap.ContainsKey($vidpid)) { $threatInfo = $script:ThreatMap[$vidpid] } } else { $threatInfo = $script:ThreatMap.PSObject.Properties[$vidpid].Value } }
+    if ($vidpid) { if ($script:ThreatMap -is [hashtable]) { if ($script:ThreatMap.ContainsKey($vidpid)) { $threatInfo = $script:ThreatMap[$vidpid] } } else { $prop = $script:ThreatMap.PSObject.Properties.Match($vidpid); if ($prop.Count -gt 0) { $threatInfo = $prop[0].Value } } }
     if ($threatInfo) { Deny-Device -Device $Device -Reason "Threat: $($threatInfo.Name)"; return }
     $learningMode = Update-LearningMode -Silent
     if ($learningMode -eq "Learning") {
@@ -2494,11 +2510,27 @@ function Initialize-System {
         Write-Host "Starting Interactive Learning Mode..." -ForegroundColor Cyan
         
         # 1. Learning Timer with +5 Minutes option
-        Show-TimerForm -Title "AutoLockdown Learning Mode" `
+        $learningResult = Show-TimerForm -Title "AutoLockdown Learning Mode" `
             -Message "System is in LEARNING MODE.`n`nConnect all legitimate USB devices now.`nDevices connected after this window will be BLOCKED." `
             -Seconds ($LearningWindowMinutes * 60) `
             -AllowCancel -CancelButtonText "Finish Early" `
             -AllowExtend -ExtendMinutes 5
+        
+        # Transition learning state to Enforced now that the timer has ended.
+        # Show-TimerForm returns $true when the timer completes naturally, or $false
+        # when the user clicks "Finish Early". Either way, learning must end now.
+        # Without this, the learning state file still contains the original expiry
+        # time, so the system remains in learning mode after the form closes.
+        $startedDTForEnforce = $StartedDT
+        $expiresDTForEnforce = Get-Date
+        if (Set-LearningState -Mode "Enforced" -Started $startedDTForEnforce -Expires $expiresDTForEnforce) {
+            if ($learningResult -eq $false) {
+                Write-LogMessage "Learning finished early by user - transitioning to ENFORCED" -Level "SUCCESS"
+            }
+            else {
+                Write-LogMessage "Learning timer completed - transitioning to ENFORCED" -Level "SUCCESS"
+            }
+        }
             
         # 2. Reboot with configurable delay + Reboot Now option
         $reboot = Show-TimerForm -Title "System Restart Required" `
@@ -2777,13 +2809,13 @@ else {
     Write-Host "    -AddDevice               Manually whitelist a device" -ForegroundColor Gray
     Write-Host ""
     Write-Host "  Options:" -ForegroundColor Yellow
-    Write-Host "    -LearningWindowMinutes   Duration in minutes (default: 180)" -ForegroundColor Gray
+    Write-Host "    -LearningWindowMinutes   Duration in minutes (default: 5)" -ForegroundColor Gray
     Write-Host "    -DeviceVidPid            VID_XXXX&PID_XXXX format" -ForegroundColor Gray
     Write-Host "    -DeviceName              Friendly name for device" -ForegroundColor Gray
     Write-Host "    -WhatIf                  Preview without changes" -ForegroundColor Gray
     Write-Host ""
     Write-Host "  Examples:" -ForegroundColor Yellow
-    Write-Host "    .\AutoLockdown.ps1 -Initialize -LearningWindowMinutes 180" -ForegroundColor White
+    Write-Host "    .\AutoLockdown.ps1 -Initialize -LearningWindowMinutes 5" -ForegroundColor White
     Write-Host "    .\AutoLockdown.ps1 -ExtendLearning -ExtendMinutes 60" -ForegroundColor White
     Write-Host "    .\AutoLockdown.ps1 -AddDevice -DeviceVidPid VID_1234&PID_5678" -ForegroundColor White
     Write-Host "    .\AutoLockdown.ps1 -ShowStatus" -ForegroundColor White
