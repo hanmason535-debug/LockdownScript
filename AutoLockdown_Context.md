@@ -1,5 +1,5 @@
 # AutoLockdown Project Context
-**Version Reference:** v4.8.0
+**Version Reference:** v4.9.0
 **Repository:** hanmason535-debug/LockdownScript
 
 ## Overview

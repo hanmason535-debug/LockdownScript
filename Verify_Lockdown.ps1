@@ -1,13 +1,13 @@
 <#
 .SYNOPSIS
-    Verify_Lockdown.ps1 v4.8.0 - AutoLockdown Health Check & Validation
+    Verify_Lockdown.ps1 v4.9.0 - AutoLockdown Health Check & Validation
 .DESCRIPTION
     Comprehensive verification tool that validates AutoLockdown deployment,
     monitors system health, and provides detailed status reports.
     
 .NOTES
     File Name : Verify_Lockdown.ps1
-    Version   : 4.8.0
+    Version   : 4.9.0
     Author    : Meet Gandhi (Product Security Engineer)
     Created   : April 2026
     Requires  : PowerShell 5.1+, Administrator privileges
@@ -39,7 +39,7 @@ param(
     [string]$OutputPath = "C:\Reports"
 )
 
-$ScriptVersion = "4.8.0"
+$ScriptVersion = "4.9.0"
 $ProductName = "AutoLockdown"
 
 # Load assemblies
@@ -500,7 +500,8 @@ function Test-ThreatDatabase {
     }
     
     try {
-        $data = Get-Content $ThreatDBFile -Raw | ConvertFrom-Json
+        $data = Import-JsonSafe -Path $ThreatDBFile
+        if (-not $data) { throw "Unable to load threat database" }
         $count = if ($data.Threats -is [hashtable]) {
             $data.Threats.Count
         }
@@ -632,7 +633,8 @@ function Test-ContainerAllowCache {
     }
     
     try {
-        $data = Get-Content $ContainerAllowCacheFile -Raw -Encoding UTF8 | ConvertFrom-Json
+        $data = Import-JsonSafe -Path $ContainerAllowCacheFile
+        if (-not $data) { throw "Unable to load container cache" }
         $count = if ($data.Containers) { $data.Containers.Count } else { 0 }
         
         Write-Check -Component "Container Allow Cache" -Status "PASS" -Message "$count allowed container(s)" -Detail "JAC 5G dongle mode-switching support"
