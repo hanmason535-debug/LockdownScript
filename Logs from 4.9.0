@@ -567,7 +567,21 @@ Verification by: Meet Gandhi (Product Security Engineer)
 System Integrity: A7F2E9C4B1D8F6E3
 ----------------------------------------------------------------------------
 
+Ueser comments:
 
+Ran the new script
+It looks like USB storage devices are blocked a bit later - pressing skip doesn't work
+So I need to check the 5 min timeout now
+
+Same behaviour if I wait - it looks like the quick block feature is not working as expected anymore
+
+it's a bit weird 
+I ran the script again so I could get logs 
+But on that run, it seems to block USB storage devices as expected.... Not sure how that happens
+ 
+I also noticed I needed to run the reset script 3 times before my USB, which was blocked, was unblocked
+ 
+Could there be a timing somewhere?
 
 
 
