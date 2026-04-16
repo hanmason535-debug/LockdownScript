@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    AutoLockdown v4.9.0 - Enterprise USB Security Hardening Suite
+    AutoLockdown v4.9.1 - Enterprise USB Security Hardening Suite
 .DESCRIPTION
     Production-grade USB security enforcement with intelligent learning mode,
     threat detection, and comprehensive monitoring capabilities.
@@ -13,11 +13,19 @@
     
 .NOTES
     File Name : AutoLockdown.ps1
-    Version   : 4.9.0
+    Version   : 4.9.1
     Author    : Meet Gandhi (Product Security Engineer)
     Created   : April 2026
     Requires  : PowerShell 5.1+, Administrator privileges
     
+    Changelog v4.9.1:
+    - Version bump to v4.9.1.
+    - Companion fixes shipped in Verify/Reset scripts:
+      * Verify now validates monitor-backed WMI handler state without false
+        same-session Get-EventSubscriber warnings.
+      * Reset now performs multi-pass USB re-enable recovery to avoid requiring
+        multiple reset runs for blocked USB stacks.
+
     Changelog v4.9.0:
     - Changed default learning window from 180 minutes to 5 minutes for faster deployment.
     - Fixed "Finish Early" button bug: clicking Finish Early during learning countdown now
@@ -153,7 +161,7 @@ if (-not $Monitor) {
 # Encryption Scope (LocalMachine allows authorized admins/SYSTEM to decrypt)
 $DPAPI_SCOPE = [System.Security.Cryptography.DataProtectionScope]::LocalMachine
 
-$ScriptVersion = "4.9.0"
+$ScriptVersion = "4.9.1"
 $ProductName = "AutoLockdown"
 
 

@@ -1,187 +1,106 @@
-# AutoLockdown v4.9.0 Patch Checklist
+# AutoLockdown v4.9.1 Patch Checklist
 
-This file documents every code and documentation change applied in the v4.9.0 patch, provides exact search patterns to validate each change, defines acceptance criteria, and gives rollback guidance.
-
----
-
-## 1. Version Bump: 4.8.0 → 4.9.0
-
-### Search Patterns (run from repo root)
-
-```powershell
-# PowerShell / Select-String
-Select-String -Path *.ps1, *.md -Pattern "4\.8\.0"
-
-# Bash / grep
-grep -rn "4\.8\.0" .
-```
-
-### Expected Findings After Patch
-
-The pattern `4\.8\.0` must return **only** changelog references in the primary files.  
-The version `4.9.0` must appear in all of the following locations:
-
-| File | Location | Expected Value |
-|------|----------|----------------|
-| `AutoLockdown.ps1` | `.SYNOPSIS` line 3 | `AutoLockdown v4.9.0` |
-| `AutoLockdown.ps1` | `.NOTES` `Version` field | `4.9.0` |
-| `AutoLockdown.ps1` | `$ScriptVersion` variable | `"4.9.0"` |
-| `Reset_Lockdown.ps1` | `.SYNOPSIS` line 3 | `Reset_Lockdown.ps1 v4.9.0` |
-| `Reset_Lockdown.ps1` | `.NOTES` `Version` field | `4.9.0` |
-| `Reset_Lockdown.ps1` | `$ScriptVersion` variable | `"4.9.0"` |
-| `Verify_Lockdown.ps1` | `.SYNOPSIS` line 3 | `Verify_Lockdown.ps1 v4.9.0` |
-| `Verify_Lockdown.ps1` | `.NOTES` `Version` field | `4.9.0` |
-| `Verify_Lockdown.ps1` | `$ScriptVersion` variable | `"4.9.0"` |
-| `INSTRUCTIONS.md` | Heading `**Version X.Y.Z**` | `4.9.0` |
-| `INSTRUCTIONS.md` | Footer line | `AutoLockdown v4.9.0` |
-| `AutoLockdown_Context.md` | `**Version Reference:**` | `v4.9.0` |
-
-### Validation Commands
-
-```powershell
-# Confirm all scripts self-report 4.9.0
-$scripts = @("AutoLockdown.ps1", "Reset_Lockdown.ps1", "Verify_Lockdown.ps1")
-foreach ($s in $scripts) {
-    $ver = (Select-String -Path $s -Pattern '\$ScriptVersion\s*=\s*"([^"]+)"').Matches[0].Groups[1].Value
-    Write-Host "$s  =>  $ver" -ForegroundColor $(if ($ver -eq "4.9.0") {"Green"} else {"Red"})
-}
-# Expected output: all three lines show "4.9.0" in green
-```
+This file documents code and documentation updates applied in v4.9.1 and defines concise, command-based validation patterns for field verification.
 
 ---
 
-## 2. Default Learning Window Changed (180 → 5 minutes)
+## 1. Version Bump: 4.9.0 -> 4.9.1
 
-### Search Pattern
+### Search Patterns
 
 ```powershell
-Select-String -Path AutoLockdown.ps1 -Pattern "LearningWindowMinutes\s*=\s*\d+"
+Select-String -Path *.ps1, *.md -Pattern "4\.9\.0"
+Select-String -Path *.ps1, *.md -Pattern "4\.9\.1"
 ```
 
-### Expected Result
+### Expected Results
 
-The `$LearningWindowMinutes` default value must be `5` (not `180`).
+- `4.9.1` appears in:
+  - `AutoLockdown.ps1` (`.SYNOPSIS`, `.NOTES Version`, `$ScriptVersion`)
+  - `Verify_Lockdown.ps1` (`.SYNOPSIS`, `.NOTES Version`, `$ScriptVersion`)
+  - `Reset_Lockdown.ps1` (`.SYNOPSIS`, `.NOTES Version`, `$ScriptVersion`)
+  - `INSTRUCTIONS.md` version heading/footer
+  - `AutoLockdown_Context.md` version reference
+- `4.9.0` remains only in historical changelog entries and prior-version references.
 
 ---
 
-## 3. Finish Early Button Bug Fix
+## 2. Verify Fix: WMI False Warning Removal
 
-### Problem Statement
+### Problem
 
-When the learning timer countdown was in progress and the user clicked "Finish Early",
-the timer form closed but the learning state JSON file was NOT updated. The system
-continued in "Learning" mode with the original expiry time, allowing USB devices that
-should have been blocked. Users believed the system was protected, but learning mode
-was still active.
+`Verify_Lockdown.ps1` previously used only `Get-EventSubscriber` / `Get-Job` in the verifier session. Since monitor WMI subscriptions are process-local, this produced false warnings (`WMI Event Handler - Not registered`) even when monitor WMI handling was active.
 
-### Search Pattern
+### Search Patterns
 
 ```powershell
-Select-String -Path AutoLockdown.ps1 -Pattern "learningResult|Finish Early|transitioning to ENFORCED"
+Select-String -Path Verify_Lockdown.ps1 -Pattern "process-local|LockFile|Recent WMI evidence|No recent WMI lines yet"
 ```
 
-### Expected Code After Patch
+### Expected Behavior
 
-After `Show-TimerForm` returns, the code must:
-1. Capture the return value (timer completed = `$true`, Finish Early = `$false`)
-2. Call `Set-LearningState -Mode "Enforced"` to immediately transition
-3. Log the transition with an appropriate message
+- WMI check validates monitor-backed behavior using lockfile/process/log evidence.
+- If monitor process is active, WMI check should PASS (not WARN) even without same-session event subscribers.
+- If Security.log has WMI evidence (`[WMI]` or `WMI event subscription registered`), detail should report that evidence count.
 
 ---
 
-## 4. Bug Fixes
+## 3. Reset Fix: Multi-Pass USB Restore
 
-### 4.1 PSCustomObject Threat Lookup (AutoLockdown.ps1)
+### Problem
 
-The `Protect-USBDevice` function previously accessed `$script:ThreatMap.PSObject.Properties[$vidpid].Value`
-directly, which throws a null-reference if the key does not exist. Fixed to use `.Match()` with
-a count guard, consistent with the WMI handler.
+Field report indicated reset sometimes needed to run multiple times before blocked USB devices were fully re-enabled.
 
-### 4.2 Raw ConvertFrom-Json in Verify_Lockdown.ps1
-
-`Test-ThreatDatabase` and `Test-ContainerAllowCache` previously used raw
-`Get-Content | ConvertFrom-Json` instead of `Import-JsonSafe`. Fixed to use
-`Import-JsonSafe` for consistent fallback-to-backup behavior.
-
-### 4.3 Unsafe Mutex Release in Update-LearningMode (AutoLockdown.ps1)
-
-The `finally` block at the end of `Update-LearningMode` called `$mutex.ReleaseMutex()`
-directly without try/catch protection. If `WaitOne` timed out (returned `$false`), calling
-`ReleaseMutex()` on an unowned mutex throws `System.ApplicationException`, which propagated
-unhandled to the callers (Start-RealtimeMonitoring, Protect-USBDevice), potentially crashing
-the monitor service. Fixed to use the same safe `try { $mutex.ReleaseMutex() } catch {} finally { $mutex.Dispose() }`
-pattern used by all other mutex sites in the codebase.
-
-#### Search Pattern
+### Search Patterns
 
 ```powershell
-Select-String -Path AutoLockdown.ps1 -Pattern "finally \{ try \{ \`$mutex\.ReleaseMutex\(\)" | Measure-Object
-# Expected: Count = 9 (all mutex sites now use safe pattern; zero use the unsafe bare pattern)
+Select-String -Path Reset_Lockdown.ps1 -Pattern "maxPasses|statusesToRestore|multi-pass|Start-Sleep -Milliseconds 1000"
 ```
 
-### 4.4 WMI Handler Whitelist Write Uses Wrong Encoding (AutoLockdown.ps1)
+### Expected Behavior
 
-The WMI event handler's learning-mode whitelist write used `Out-File ... -Force` without
-`-Encoding UTF8`. In PowerShell 5.1, `Out-File` defaults to UTF-16LE. After the WMI handler
-learned a device, the whitelist file was written in UTF-16LE, but all readers (fast-path
-watcher `Get-WhitelistFast`, `Import-JsonSafe`, subsequent WMI reads) specify `-Encoding UTF8`.
-Reading UTF-16LE as UTF-8 produces garbled data, causing `ConvertFrom-Json` to throw,
-returning an empty whitelist. Result: every whitelisted device would be blocked after the
-WMI handler learned even one device. Fixed by adding `-Encoding UTF8`.
-
-#### Search Pattern
-
-```powershell
-Select-String -Path AutoLockdown.ps1 -Pattern "Out-File \`$data\.USBWhitelistPath" 
-# Expected: line must contain "-Encoding UTF8"
-```
+- `Restore-USBDevices` runs multiple recovery passes (up to 5) in a single reset.
+- USB devices in `Error`/`Degraded`/`Unknown` state are retried.
+- Step output reports either:
+  - full multi-pass recovery complete, or
+  - partial recovery warning with remaining device count.
 
 ---
 
-## 5. Acceptance Test Matrix
+## 4. Acceptance Matrix
 
-### 5.1 Version Acceptance
-
-| Check | Command | Expected Output |
-|-------|---------|-----------------|
-| AutoLockdown version | `Select-String AutoLockdown.ps1 '\$ScriptVersion'` | `4.9.0` |
-| Reset version | `Select-String Reset_Lockdown.ps1 '\$ScriptVersion'` | `4.9.0` |
-| Verify version | `Select-String Verify_Lockdown.ps1 '\$ScriptVersion'` | `4.9.0` |
-| Default learning window | `Select-String AutoLockdown.ps1 'LearningWindowMinutes\s*=\s*\d+'` | `5` |
-
-### 5.2 Finish Early Test
-
-| Scenario | Expected Result | How to Verify |
-|----------|-----------------|---------------|
-| Timer expires naturally | Learning state set to "Enforced" | Check Learning_State.json |
-| User clicks Finish Early | Learning state set to "Enforced" immediately | Check Learning_State.json |
-| User extends (+5 min) then timer expires | Learning state set to "Enforced" | Check Learning_State.json |
+| Check | Command | Expected |
+|------|---------|----------|
+| AutoLockdown version | `Select-String AutoLockdown.ps1 '\$ScriptVersion'` | `4.9.1` |
+| Verify version | `Select-String Verify_Lockdown.ps1 '\$ScriptVersion'` | `4.9.1` |
+| Reset version | `Select-String Reset_Lockdown.ps1 '\$ScriptVersion'` | `4.9.1` |
+| Verify WMI logic | `Select-String Verify_Lockdown.ps1 'process-local|Recent WMI evidence'` | New monitor-backed logic present |
+| Reset multi-pass logic | `Select-String Reset_Lockdown.ps1 'maxPasses|statusesToRestore'` | Multi-pass USB restore present |
 
 ---
 
-## 6. Rollback Notes
+## 5. Rollback Notes
 
-### Version Rollback (4.9.0 → 4.8.0)
+### Version Rollback (4.9.1 -> 4.9.0)
 
 ```powershell
-# In each file, replace version string
-(Get-Content AutoLockdown.ps1)  -replace "4\.9\.0", "4.8.0" | Set-Content AutoLockdown.ps1
-(Get-Content Reset_Lockdown.ps1) -replace "4\.9\.0", "4.8.0" | Set-Content Reset_Lockdown.ps1
-(Get-Content Verify_Lockdown.ps1) -replace "4\.9\.0", "4.8.0" | Set-Content Verify_Lockdown.ps1
-(Get-Content INSTRUCTIONS.md)   -replace "4\.9\.0", "4.8.0" | Set-Content INSTRUCTIONS.md
-```
+(Get-Content AutoLockdown.ps1) |
+    ForEach-Object { $_ -replace '(\$ScriptVersion\s*=\s*")4\.9\.1(")', '${1}4.9.0${2}' } |
+    Set-Content AutoLockdown.ps1
 
----
+(Get-Content Verify_Lockdown.ps1) |
+    ForEach-Object { $_ -replace '(\$ScriptVersion\s*=\s*")4\.9\.1(")', '${1}4.9.0${2}' } |
+    Set-Content Verify_Lockdown.ps1
 
-## 7. Git Reference
+(Get-Content Reset_Lockdown.ps1) |
+    ForEach-Object { $_ -replace '(\$ScriptVersion\s*=\s*")4\.9\.1(")', '${1}4.9.0${2}' } |
+    Set-Content Reset_Lockdown.ps1
 
-```bash
-# Show files changed in this patch
-git diff --name-only v4.8.0..HEAD
+(Get-Content INSTRUCTIONS.md) |
+    ForEach-Object { $_ -replace '\*\*Version 4\.9\.1\*\*', '**Version 4.9.0**' -replace 'AutoLockdown v4\.9\.1', 'AutoLockdown v4.9.0' } |
+    Set-Content INSTRUCTIONS.md
 
-# Show full diff
-git diff v4.8.0..HEAD
-
-# Revert this patch commit
-git revert HEAD
+(Get-Content AutoLockdown_Context.md) |
+    ForEach-Object { $_ -replace '\*\*Version Reference:\*\* v4\.9\.1', '**Version Reference:** v4.9.0' } |
+    Set-Content AutoLockdown_Context.md
 ```

@@ -1,5 +1,5 @@
 # AutoLockdown Field Deployment Guide
-**Version 4.9.0** | Created by: Meet Gandhi (Product Security Engineer)
+**Version 4.9.1** | Created by: Meet Gandhi (Product Security Engineer)
 
 ---
 
@@ -350,4 +350,4 @@ Before leaving site, confirm all boxes:
 
 ---
 
-*AutoLockdown v4.9.0 — Enterprise USB Security Hardening Suite*
+*AutoLockdown v4.9.1 — Enterprise USB Security Hardening Suite*

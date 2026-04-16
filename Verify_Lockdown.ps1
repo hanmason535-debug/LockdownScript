@@ -1,17 +1,23 @@
 <#
 .SYNOPSIS
-    Verify_Lockdown.ps1 v4.9.0 - AutoLockdown Health Check & Validation
+    Verify_Lockdown.ps1 v4.9.1 - AutoLockdown Health Check & Validation
 .DESCRIPTION
     Comprehensive verification tool that validates AutoLockdown deployment,
     monitors system health, and provides detailed status reports.
     
 .NOTES
     File Name : Verify_Lockdown.ps1
-    Version   : 4.9.0
+    Version   : 4.9.1
     Author    : Meet Gandhi (Product Security Engineer)
     Created   : April 2026
     Requires  : PowerShell 5.1+, Administrator privileges
     
+    Changelog v4.9.1:
+    - Fixed false WMI verification warnings: Verify now validates monitor-backed WMI
+      registration/activity from lockfile + security log instead of only same-session
+      Get-EventSubscriber/Get-Job checks.
+    - Version bump to match AutoLockdown v4.9.1.
+
     Changelog v4.9.0:
     - Version bump to match AutoLockdown v4.9.0.
     - Fixed Test-ThreatDatabase to use Import-JsonSafe instead of raw ConvertFrom-Json
@@ -45,7 +51,7 @@ param(
     [string]$OutputPath = "C:\Reports"
 )
 
-$ScriptVersion = "4.9.0"
+$ScriptVersion = "4.9.1"
 $ProductName = "AutoLockdown"
 
 # Load assemblies
@@ -290,24 +296,45 @@ function Test-MonitorRunning {
 
 function Test-WMIEventSubscription {
     try {
-        $subscription = Get-EventSubscriber -SourceIdentifier "AutoLockdown_USBWatch" -ErrorAction SilentlyContinue
-        
-        if ($subscription) {
-            $job = Get-Job -Name "AutoLockdown_USBWatch" -ErrorAction SilentlyContinue
-            
-            if ($job) {
-                Write-Check -Component "WMI Event Handler" -Status "PASS" -Message "Registered and active (WITHIN 1 catch-all)" -Detail "State: $($subscription.State), Job: $($job.State)"
-                return $true
-            }
-            else {
-                Write-Check -Component "WMI Event Handler" -Status "WARN" -Message "Registered but no background job" -Detail "Subscription exists but job missing"
-                return $false
-            }
-        }
-        else {
-            Write-Check -Component "WMI Event Handler" -Status "WARN" -Message "Not registered" -Detail "Monitor may be starting up or failed to register"
+        # Register-WmiEvent subscriptions are process-local. Verify runs in a different
+        # PowerShell process, so Get-EventSubscriber/Get-Job here can produce false WARN.
+        if (-not (Test-Path $LockFile)) {
+            Write-Check -Component "WMI Event Handler" -Status "WARN" -Message "Monitor not running" -Detail "Cannot validate monitor-backed WMI handler without active monitor"
             return $false
         }
+
+        $lockContent = Get-Content $LockFile -Raw -ErrorAction Stop
+        if (-not ($lockContent -match "PID:(\d+)")) {
+            Write-Check -Component "WMI Event Handler" -Status "WARN" -Message "Lockfile format invalid" -Detail "Unable to resolve monitor PID"
+            return $false
+        }
+
+        $monitorPid = [int]$Matches[1]
+        if ($monitorPid -le 0) {
+            Write-Check -Component "WMI Event Handler" -Status "WARN" -Message "Lockfile PID invalid" -Detail "PID value from lockfile is not a positive integer"
+            return $false
+        }
+        $monitorProcess = Get-Process -Id $monitorPid -ErrorAction SilentlyContinue
+        if (-not $monitorProcess) {
+            Write-Check -Component "WMI Event Handler" -Status "WARN" -Message "Monitor process not running" -Detail "PID $monitorPid from lockfile is not active"
+            return $false
+        }
+
+        $recentWmiLines = @()
+        if (Test-Path $LogFile) {
+            try {
+                $recentWmiLines = @(Get-Content $LogFile -Tail 200 -ErrorAction SilentlyContinue | Where-Object { $_ -match '\[WMI\]' -or $_ -match 'WMI event subscription registered' })
+            }
+            catch { $recentWmiLines = @() }
+        }
+
+        if ($recentWmiLines.Count -gt 0) {
+            Write-Check -Component "WMI Event Handler" -Status "PASS" -Message "Active via monitor process (WITHIN 1 catch-all)" -Detail "Recent WMI evidence in Security.log: $($recentWmiLines.Count) line(s)"
+            return $true
+        }
+
+        Write-Check -Component "WMI Event Handler" -Status "PASS" -Message "Monitor process active (WMI subscriber is process-local)" -Detail "No recent WMI lines yet; this may be normal until USB events occur"
+        return $true
     }
     catch {
         Write-Check -Component "WMI Event Handler" -Status "FAIL" -Message "Error checking subscription" -Detail "Error: $_"
