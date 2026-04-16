@@ -319,7 +319,7 @@ function Test-WMIEventSubscription {
         $recentWmiLines = @()
         if (Test-Path $LogFile) {
             try {
-                $recentWmiLines = @(Get-Content $LogFile -Tail 600 -ErrorAction SilentlyContinue | Where-Object { $_ -match '\[WMI\]' -or $_ -match 'WMI event subscription registered' })
+                $recentWmiLines = @(Get-Content $LogFile -Tail 200 -ErrorAction SilentlyContinue | Where-Object { $_ -match '\[WMI\]' -or $_ -match 'WMI event subscription registered' })
             }
             catch { $recentWmiLines = @() }
         }

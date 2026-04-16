@@ -277,7 +277,7 @@ function Restore-USBDevices {
             }
 
             # Composite/parent-child USB stacks can require additional passes.
-            Start-Sleep -Milliseconds 500
+            Start-Sleep -Milliseconds 1000
         }
         
         $remaining = Get-PnpDevice -ErrorAction SilentlyContinue | Where-Object {
