@@ -1,6 +1,6 @@
 # AutoLockdown v4.9.1 Patch Checklist
 
-This file documents code and documentation updates applied in v4.9.1 and defines direct validation patterns for field verification.
+This file documents code and documentation updates applied in v4.9.1 and defines concise, command-based validation patterns for field verification.
 
 ---
 

@@ -310,6 +310,10 @@ function Test-WMIEventSubscription {
         }
 
         $monitorPid = [int]$Matches[1]
+        if ($monitorPid -le 0) {
+            Write-Check -Component "WMI Event Handler" -Status "WARN" -Message "Lockfile PID invalid" -Detail "PID value from lockfile is not a positive integer"
+            return $false
+        }
         $monitorProcess = Get-Process -Id $monitorPid -ErrorAction SilentlyContinue
         if (-not $monitorProcess) {
             Write-Check -Component "WMI Event Handler" -Status "WARN" -Message "Monitor process not running" -Detail "PID $monitorPid from lockfile is not active"

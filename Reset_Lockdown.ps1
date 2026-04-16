@@ -257,6 +257,7 @@ function Restore-USBDevices {
     Write-ResetLog "Restoring USB devices..." "INFO"
     
     try {
+        # Include transitional/non-healthy states seen during USB stack recovery.
         $statusesToRestore = @("Error", "Degraded", "Unknown")
         $maxPasses = 5
         $restoredIds = @{}
@@ -269,8 +270,8 @@ function Restore-USBDevices {
             if (-not $blocked -or $blocked.Count -eq 0) { break }
 
             foreach ($dev in $blocked) {
-                $deviceLabel = if ($dev.FriendlyName) { $dev.FriendlyName } else { $dev.InstanceId }
-                if ($PSCmdlet.ShouldProcess($deviceLabel, "Enable")) {
+                $deviceDisplayName = if ($dev.FriendlyName) { $dev.FriendlyName } else { $dev.InstanceId }
+                if ($PSCmdlet.ShouldProcess($deviceDisplayName, "Enable")) {
                     Enable-PnpDevice -InstanceId $dev.InstanceId -Confirm:$false -ErrorAction SilentlyContinue
                     $restoredIds[$dev.InstanceId] = $true
                 }
