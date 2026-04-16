@@ -84,9 +84,23 @@ Select-String -Path Reset_Lockdown.ps1 -Pattern "maxPasses|statusesToRestore|mul
 ### Version Rollback (4.9.1 -> 4.9.0)
 
 ```powershell
-(Get-Content AutoLockdown.ps1)  -replace "4\.9\.1", "4.9.0" | Set-Content AutoLockdown.ps1
-(Get-Content Verify_Lockdown.ps1) -replace "4\.9\.1", "4.9.0" | Set-Content Verify_Lockdown.ps1
-(Get-Content Reset_Lockdown.ps1) -replace "4\.9\.1", "4.9.0" | Set-Content Reset_Lockdown.ps1
-(Get-Content INSTRUCTIONS.md) -replace "4\.9\.1", "4.9.0" | Set-Content INSTRUCTIONS.md
-(Get-Content AutoLockdown_Context.md) -replace "4\.9\.1", "4.9.0" | Set-Content AutoLockdown_Context.md
+(Get-Content AutoLockdown.ps1) |
+    ForEach-Object { $_ -replace '(\$ScriptVersion\s*=\s*")4\.9\.1(")', '${1}4.9.0${2}' } |
+    Set-Content AutoLockdown.ps1
+
+(Get-Content Verify_Lockdown.ps1) |
+    ForEach-Object { $_ -replace '(\$ScriptVersion\s*=\s*")4\.9\.1(")', '${1}4.9.0${2}' } |
+    Set-Content Verify_Lockdown.ps1
+
+(Get-Content Reset_Lockdown.ps1) |
+    ForEach-Object { $_ -replace '(\$ScriptVersion\s*=\s*")4\.9\.1(")', '${1}4.9.0${2}' } |
+    Set-Content Reset_Lockdown.ps1
+
+(Get-Content INSTRUCTIONS.md) |
+    ForEach-Object { $_ -replace '\*\*Version 4\.9\.1\*\*', '**Version 4.9.0**' -replace 'AutoLockdown v4\.9\.1', 'AutoLockdown v4.9.0' } |
+    Set-Content INSTRUCTIONS.md
+
+(Get-Content AutoLockdown_Context.md) |
+    ForEach-Object { $_ -replace '\*\*Version Reference:\*\* v4\.9\.1', '**Version Reference:** v4.9.0' } |
+    Set-Content AutoLockdown_Context.md
 ```
