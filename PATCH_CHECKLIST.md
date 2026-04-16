@@ -54,7 +54,7 @@ Field report indicated reset sometimes needed to run multiple times before block
 ### Search Patterns
 
 ```powershell
-Select-String -Path Reset_Lockdown.ps1 -Pattern "maxPasses|statusesToRestore|multi-pass|Start-Sleep -Milliseconds 500"
+Select-String -Path Reset_Lockdown.ps1 -Pattern "maxPasses|statusesToRestore|multi-pass|Start-Sleep -Milliseconds 1000"
 ```
 
 ### Expected Behavior
