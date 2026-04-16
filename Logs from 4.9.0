@@ -1,1 +1,611 @@
 
+=== PNP DEVICES ===
+
+=== SECURITY LOG (startup + matches) ===
+
+[2026-04-16 04:33:50] [BLOCK] [FastPath] BLOCKING VID_05E3&PID_0610 (USB\VID_05E3&PID_0610\5&2018f402&0&2) before 
+driver install
+[2026-04-16 04:33:52] [BLOCK] [FastPath] BLOCKING VID_05E3&PID_0610 (USB\VID_05E3&PID_0610\5&2018f402&0&3) before 
+driver install
+[2026-04-16 04:33:53] [BLOCK] [FastPath] BLOCKING VID_05E3&PID_0626 (USB\VID_05E3&PID_0626\5&19c1865&0&23) before 
+driver install
+[2026-04-16 04:33:55] [BLOCK] [FastPath] BLOCKING VID_05E3&PID_0626 (USB\VID_05E3&PID_0626\5&1bdbc97d&0&22) before 
+driver install
+[2026-04-16 04:33:56] [BLOCK] [FastPath] BLOCKING VID_05E3&PID_0626 (USB\VID_05E3&PID_0626\5&2018f402&0&18) before 
+driver install
+[2026-04-16 04:33:58] [BLOCK] [FastPath] BLOCKING VID_05E3&PID_0626 (USB\VID_05E3&PID_0626\5&2018f402&0&23) before 
+driver install
+[2026-04-16 04:33:59] [BLOCK] [FastPath] BLOCKING VID_0781&PID_55AE 
+(USB\VID_0781&PID_55AE\MSFT30323533373643343031363536) before driver install
+[2026-04-16 04:34:00] [SUCCESS] [FastPath] ALLOWED VID_093A&PID_2510 - Trusted HID vendor 
+(ClassGUID={745a17a0-74d3-11d0-b6fe-00a0c90f57da})
+[2026-04-16 04:34:00] [BLOCK] [FastPath] BLOCKING VID_0951&PID_1666 (USB\VID_0951&PID_1666\408D5CE57217E8C05950155F) 
+before driver install
+[2026-04-16 04:34:02] [BLOCK] [FastPath] BLOCKING VID_0951&PID_1666 (USB\VID_0951&PID_1666\4CEDFB779582F6C1090510DF) 
+before driver install
+[2026-04-16 04:34:03] [BLOCK] [FastPath] BLOCKING VID_0951&PID_16B3 (USB\VID_0951&PID_16B3\0018F30C9EE4E1815111ED9E) 
+before driver install
+[2026-04-16 04:34:05] [BLOCK] [FastPath] BLOCKING VID_0951&PID_16B3 (USB\VID_0951&PID_16B3\001A9245EE22E0B17259EE1F) 
+before driver install
+[2026-04-16 04:34:06] [BLOCK] [FastPath] BLOCKING VID_0BDA&PID_0411 (USB\VID_0BDA&PID_0411\5&1bdbc97d&0&25) before 
+driver install
+[2026-04-16 04:34:08] [BLOCK] [FastPath] BLOCKING VID_0BDA&PID_5411 (USB\VID_0BDA&PID_5411\7&19ff5a02&0&1) before 
+driver install
+[2026-04-16 04:34:10] [SUCCESS] [FastPath] ALLOWED VID_0D62&PID_3F41 - Trusted HID vendor (class pending)
+[2026-04-16 04:34:10] [SUCCESS] [FastPath] ALLOWED VID_0D62&PID_3F41 - Trusted HID vendor (class pending)
+[2026-04-16 04:34:11] [SUCCESS] [FastPath] ALLOWED VID_0D62&PID_3F41 - Trusted HID vendor (class pending)
+[2026-04-16 04:34:11] [SUCCESS] [FastPath] ALLOWED VID_0D62&PID_3F41 - Trusted HID vendor (class pending)
+[2026-04-16 04:34:11] [SUCCESS] [FastPath] ALLOWED VID_0D62&PID_3F41 - Trusted HID vendor 
+(ClassGUID={745a17a0-74d3-11d0-b6fe-00a0c90f57da})
+[2026-04-16 04:34:11] [SUCCESS] [FastPath] ALLOWED VID_0D62&PID_3F41 - Trusted HID vendor 
+(ClassGUID={745a17a0-74d3-11d0-b6fe-00a0c90f57da})
+[2026-04-16 04:34:11] [SUCCESS] [FastPath] ALLOWED VID_0D62&PID_3F41 - Trusted HID vendor 
+(ClassGUID={745a17a0-74d3-11d0-b6fe-00a0c90f57da})
+[2026-04-16 04:34:11] [SUCCESS] [FastPath] ALLOWED VID_0D62&PID_3F41 - Trusted HID vendor 
+(ClassGUID={745a17a0-74d3-11d0-b6fe-00a0c90f57da})
+[2026-04-16 04:34:11] [SUCCESS] [FastPath] ALLOWED VID_0D62&PID_3F41 - Trusted HID vendor 
+(ClassGUID={745a17a0-74d3-11d0-b6fe-00a0c90f57da})
+[2026-04-16 04:34:11] [SUCCESS] [FastPath] ALLOWED VID_0D62&PID_3F41 - Trusted HID vendor 
+(ClassGUID={745a17a0-74d3-11d0-b6fe-00a0c90f57da})
+[2026-04-16 04:34:11] [SUCCESS] [FastPath] ALLOWED VID_0D62&PID_3F41 - Trusted HID vendor 
+(ClassGUID={745a17a0-74d3-11d0-b6fe-00a0c90f57da})
+[2026-04-16 04:34:11] [SUCCESS] [FastPath] ALLOWED VID_0D62&PID_3F41 - Trusted HID vendor 
+(ClassGUID={745a17a0-74d3-11d0-b6fe-00a0c90f57da})
+[2026-04-16 04:34:11] [SUCCESS] [FastPath] ALLOWED VID_0D62&PID_4141 - Trusted HID vendor 
+(ClassGUID={745a17a0-74d3-11d0-b6fe-00a0c90f57da})
+[2026-04-16 04:34:12] [SUCCESS] [FastPath] ALLOWED VID_18D1&PID_4EE1 - Trusted HID vendor (class pending)
+[2026-04-16 04:34:12] [BLOCK] [FastPath] BLOCKING VID_1A40&PID_0801 (USB\VID_1A40&PID_0801\5&1bdbc97d&0&1) before 
+driver install
+[2026-04-16 04:34:13] [BLOCK] [FastPath] BLOCKING VID_1A40&PID_0801 (USB\VID_1A40&PID_0801\6&151c10c4&0&2) before 
+driver install
+[2026-04-16 04:34:15] [SUCCESS] [FastPath] ALLOWED VID_1C4F&PID_0047 - Trusted HID vendor (class pending)
+[2026-04-16 04:34:15] [SUCCESS] [FastPath] ALLOWED VID_1C4F&PID_0047 - Trusted HID vendor 
+(ClassGUID={745a17a0-74d3-11d0-b6fe-00a0c90f57da})
+[2026-04-16 04:34:15] [SUCCESS] [FastPath] ALLOWED VID_1C4F&PID_0047 - Trusted HID vendor 
+(ClassGUID={745a17a0-74d3-11d0-b6fe-00a0c90f57da})
+[2026-04-16 04:34:15] [BLOCK] [FastPath] BLOCKING VID_2222&PID_0048 (USB\VID_2222&PID_0048\8&dbe4e25&0&1) before 
+driver install
+[2026-04-16 04:34:17] [BLOCK] [FastPath] BLOCKING VID_2222&PID_0048 (USB\VID_2222&PID_0048&MI_00\9&e4ea0e4&0&0000) 
+before driver install
+[2026-04-16 04:34:18] [BLOCK] [FastPath] BLOCKING VID_2222&PID_0048 (USB\VID_2222&PID_0048&MI_01\9&e4ea0e4&0&0001) 
+before driver install
+[2026-04-16 04:34:20] [SUCCESS] [FastPath] ALLOWED VID_413C&PID_301A - Trusted HID vendor 
+(ClassGUID={745a17a0-74d3-11d0-b6fe-00a0c90f57da})
+[2026-04-16 04:34:20] [SUCCESS] [FastPath] ALLOWED VID_8087&PID_0026 - Trusted HID vendor (class pending)
+[2026-04-16 04:34:21] [SUCCESS] [FastPath] ALLOWED VID_8087&PID_0033 - Trusted HID vendor (class pending)
+[2026-04-16 04:34:21] [BLOCK] [FastPath] BLOCKING VID_FFFF&PID_5678 (USB\VID_FFFF&PID_5678\9207126116702824126) before 
+driver install
+[2026-04-16 04:35:40] [BLOCK] BLOCKED USB Mass Storage Device - Not whitelisted
+[2026-04-16 05:06:30] [SUCCESS] ALLOWED Intel(R) Wireless Bluetooth(R) - Whitelisted
+[2026-04-16 05:06:30] [SUCCESS] ALLOWED USB Serial Converter - Infrastructure
+[2026-04-16 05:06:30] [SUCCESS] ALLOWED USB Input Device - Trusted HID
+[2026-04-16 05:06:30] [SUCCESS] ALLOWED USB Input Device - Trusted HID
+[2026-04-16 05:06:30] [SUCCESS] ALLOWED USB Input Device - Trusted HID
+[2026-04-16 05:06:30] [SUCCESS] ALLOWED USB Composite Device - Whitelisted
+[2026-04-16 05:06:30] [SUCCESS] ALLOWED USB Root Hub (USB 3.0) - System
+[2026-04-16 05:06:31] [SUCCESS] [FastPath] ALLOWED VID_03F0&PID_034A - Trusted HID vendor (class pending)
+[2026-04-16 05:06:31] [SUCCESS] [FastPath] ALLOWED VID_03F0&PID_034A - Trusted HID vendor (class pending)
+[2026-04-16 05:06:31] [SUCCESS] [FastPath] ALLOWED VID_03F0&PID_034A - Trusted HID vendor 
+(ClassGUID={745a17a0-74d3-11d0-b6fe-00a0c90f57da})
+[2026-04-16 05:06:31] [SUCCESS] [FastPath] ALLOWED VID_03F0&PID_034A - Trusted HID vendor 
+(ClassGUID={745a17a0-74d3-11d0-b6fe-00a0c90f57da})
+[2026-04-16 05:06:31] [SUCCESS] [FastPath] ALLOWED VID_03F0&PID_034A - Trusted HID vendor 
+(ClassGUID={745a17a0-74d3-11d0-b6fe-00a0c90f57da})
+[2026-04-16 05:06:31] [SUCCESS] [FastPath] ALLOWED VID_03F0&PID_034A - Trusted HID vendor 
+(ClassGUID={745a17a0-74d3-11d0-b6fe-00a0c90f57da})
+[2026-04-16 05:06:32] [SUCCESS] [FastPath] ALLOWED VID_03F0&PID_354A - Trusted HID vendor (class pending)
+[2026-04-16 05:06:32] [SUCCESS] [FastPath] ALLOWED VID_03F0&PID_354A - Trusted HID vendor 
+(ClassGUID={745a17a0-74d3-11d0-b6fe-00a0c90f57da})
+[2026-04-16 05:06:32] [SUCCESS] [FastPath] ALLOWED VID_03F0&PID_354A - Trusted HID vendor 
+(ClassGUID={745a17a0-74d3-11d0-b6fe-00a0c90f57da})
+[2026-04-16 05:06:32] [SUCCESS] [FastPath] ALLOWED VID_03F0&PID_3640 - Trusted HID vendor (class pending)
+[2026-04-16 05:06:32] [SUCCESS] [FastPath] ALLOWED VID_0403&PID_6001 - Infrastructure
+[2026-04-16 05:06:32] [SUCCESS] [FastPath] ALLOWED VID_0461&PID_574A - Trusted HID vendor 
+(ClassGUID={745a17a0-74d3-11d0-b6fe-00a0c90f57da})
+[2026-04-16 05:06:32] [SUCCESS] [FastPath] ALLOWED VID_0461&PID_574A - Trusted HID vendor 
+(ClassGUID={745a17a0-74d3-11d0-b6fe-00a0c90f57da})
+[2026-04-16 05:06:32] [SUCCESS] [FastPath] ALLOWED VID_0461&PID_574A - Trusted HID vendor 
+(ClassGUID={745a17a0-74d3-11d0-b6fe-00a0c90f57da})
+[2026-04-16 05:06:32] [SUCCESS] [FastPath] ALLOWED VID_0461&PID_574A - Trusted HID vendor 
+(ClassGUID={745a17a0-74d3-11d0-b6fe-00a0c90f57da})
+[2026-04-16 05:06:33] [SUCCESS] [FastPath] ALLOWED VID_046D&PID_C52B - Trusted HID vendor (class pending)
+[2026-04-16 05:06:33] [SUCCESS] [FastPath] ALLOWED VID_046D&PID_C52B - Trusted HID vendor 
+(ClassGUID={745a17a0-74d3-11d0-b6fe-00a0c90f57da})
+[2026-04-16 05:06:33] [SUCCESS] [FastPath] ALLOWED VID_046D&PID_C52B - Trusted HID vendor 
+(ClassGUID={745a17a0-74d3-11d0-b6fe-00a0c90f57da})
+[2026-04-16 05:06:33] [SUCCESS] [FastPath] ALLOWED VID_046D&PID_C52B - Trusted HID vendor 
+(ClassGUID={745a17a0-74d3-11d0-b6fe-00a0c90f57da})
+[2026-04-16 05:06:34] [BLOCK] [FastPath] BLOCKING VID_05AC&PID_12A8 (USB\VID_05AC&PID_12A8\000081100010341A263B801E) 
+before driver install
+[2026-04-16 05:06:36] [BLOCK] [FastPath] BLOCKING VID_05AC&PID_12A8 (USB\VID_05AC&PID_12A8&MI_00\6&6d2f087&1&0000) 
+before driver install
+[2026-04-16 05:06:37] [BLOCK] [FastPath] BLOCKING VID_05E3&PID_0610 (USB\VID_05E3&PID_0610\5&19c1865&0&2) before 
+driver install
+[2026-04-16 05:06:38] [BLOCK] [FastPath] BLOCKING VID_05E3&PID_0610 (USB\VID_05E3&PID_0610\5&1bdbc97d&0&3) before 
+driver install
+[2026-04-16 05:06:40] [BLOCK] [FastPath] BLOCKING VID_05E3&PID_0610 (USB\VID_05E3&PID_0610\5&2018f402&0&2) before 
+driver install
+[2026-04-16 05:06:41] [BLOCK] [FastPath] BLOCKING VID_05E3&PID_0610 (USB\VID_05E3&PID_0610\5&2018f402&0&3) before 
+driver install
+[2026-04-16 05:06:43] [BLOCK] [FastPath] BLOCKING VID_05E3&PID_0626 (USB\VID_05E3&PID_0626\5&19c1865&0&23) before 
+driver install
+[2026-04-16 05:06:44] [BLOCK] [FastPath] BLOCKING VID_05E3&PID_0626 (USB\VID_05E3&PID_0626\5&1bdbc97d&0&22) before 
+driver install
+[2026-04-16 05:06:46] [BLOCK] [FastPath] BLOCKING VID_05E3&PID_0626 (USB\VID_05E3&PID_0626\5&2018f402&0&18) before 
+driver install
+[2026-04-16 05:06:47] [BLOCK] [FastPath] BLOCKING VID_05E3&PID_0626 (USB\VID_05E3&PID_0626\5&2018f402&0&23) before 
+driver install
+[2026-04-16 05:06:48] [BLOCK] [FastPath] BLOCKING VID_0781&PID_55AE 
+(USB\VID_0781&PID_55AE\MSFT30323533373643343031363536) before driver install
+[2026-04-16 05:06:50] [SUCCESS] [FastPath] ALLOWED VID_093A&PID_2510 - Trusted HID vendor 
+(ClassGUID={745a17a0-74d3-11d0-b6fe-00a0c90f57da})
+[2026-04-16 05:06:50] [BLOCK] [FastPath] BLOCKING VID_0951&PID_1666 (USB\VID_0951&PID_1666\408D5CE57217E8C05950155F) 
+before driver install
+[2026-04-16 05:06:51] [BLOCK] [FastPath] BLOCKING VID_0951&PID_1666 (USB\VID_0951&PID_1666\4CEDFB779582F6C1090510DF) 
+before driver install
+[2026-04-16 05:06:53] [BLOCK] [FastPath] BLOCKING VID_0951&PID_16B3 (USB\VID_0951&PID_16B3\0018F30C9EE4E1815111ED9E) 
+before driver install
+[2026-04-16 05:06:54] [BLOCK] [FastPath] BLOCKING VID_0951&PID_16B3 (USB\VID_0951&PID_16B3\001A9245EE22E0B17259EE1F) 
+before driver install
+[2026-04-16 05:06:56] [BLOCK] [FastPath] BLOCKING VID_0BDA&PID_0411 (USB\VID_0BDA&PID_0411\5&1bdbc97d&0&25) before 
+driver install
+[2026-04-16 05:06:58] [BLOCK] [FastPath] BLOCKING VID_0BDA&PID_5411 (USB\VID_0BDA&PID_5411\7&19ff5a02&0&1) before 
+driver install
+[2026-04-16 05:07:00] [SUCCESS] [FastPath] ALLOWED VID_0D62&PID_3F41 - Trusted HID vendor (class pending)
+[2026-04-16 05:07:01] [SUCCESS] [FastPath] ALLOWED VID_0D62&PID_3F41 - Trusted HID vendor (class pending)
+[2026-04-16 05:07:01] [SUCCESS] [FastPath] ALLOWED VID_0D62&PID_3F41 - Trusted HID vendor (class pending)
+[2026-04-16 05:07:02] [SUCCESS] [FastPath] ALLOWED VID_0D62&PID_3F41 - Trusted HID vendor (class pending)
+[2026-04-16 05:07:02] [SUCCESS] [FastPath] ALLOWED VID_0D62&PID_3F41 - Trusted HID vendor 
+(ClassGUID={745a17a0-74d3-11d0-b6fe-00a0c90f57da})
+[2026-04-16 05:07:02] [SUCCESS] [FastPath] ALLOWED VID_0D62&PID_3F41 - Trusted HID vendor 
+(ClassGUID={745a17a0-74d3-11d0-b6fe-00a0c90f57da})
+[2026-04-16 05:07:02] [SUCCESS] [FastPath] ALLOWED VID_0D62&PID_3F41 - Trusted HID vendor 
+(ClassGUID={745a17a0-74d3-11d0-b6fe-00a0c90f57da})
+[2026-04-16 05:07:02] [SUCCESS] [FastPath] ALLOWED VID_0D62&PID_3F41 - Trusted HID vendor 
+(ClassGUID={745a17a0-74d3-11d0-b6fe-00a0c90f57da})
+[2026-04-16 05:07:02] [SUCCESS] [FastPath] ALLOWED VID_0D62&PID_3F41 - Trusted HID vendor 
+(ClassGUID={745a17a0-74d3-11d0-b6fe-00a0c90f57da})
+[2026-04-16 05:07:02] [SUCCESS] [FastPath] ALLOWED VID_0D62&PID_3F41 - Trusted HID vendor 
+(ClassGUID={745a17a0-74d3-11d0-b6fe-00a0c90f57da})
+[2026-04-16 05:07:02] [SUCCESS] [FastPath] ALLOWED VID_0D62&PID_3F41 - Trusted HID vendor 
+(ClassGUID={745a17a0-74d3-11d0-b6fe-00a0c90f57da})
+[2026-04-16 05:07:02] [SUCCESS] [FastPath] ALLOWED VID_0D62&PID_3F41 - Trusted HID vendor 
+(ClassGUID={745a17a0-74d3-11d0-b6fe-00a0c90f57da})
+[2026-04-16 05:07:02] [SUCCESS] [FastPath] ALLOWED VID_0D62&PID_4141 - Trusted HID vendor 
+(ClassGUID={745a17a0-74d3-11d0-b6fe-00a0c90f57da})
+[2026-04-16 05:07:02] [SUCCESS] [FastPath] ALLOWED VID_18D1&PID_4EE1 - Trusted HID vendor (class pending)
+[2026-04-16 05:07:02] [BLOCK] [FastPath] BLOCKING VID_1A40&PID_0801 (USB\VID_1A40&PID_0801\5&1bdbc97d&0&1) before 
+driver install
+[2026-04-16 05:07:04] [BLOCK] [FastPath] BLOCKING VID_1A40&PID_0801 (USB\VID_1A40&PID_0801\6&151c10c4&0&2) before 
+driver install
+[2026-04-16 05:07:06] [SUCCESS] [FastPath] ALLOWED VID_1C4F&PID_0047 - Trusted HID vendor (class pending)
+[2026-04-16 05:07:06] [SUCCESS] [FastPath] ALLOWED VID_1C4F&PID_0047 - Trusted HID vendor 
+(ClassGUID={745a17a0-74d3-11d0-b6fe-00a0c90f57da})
+[2026-04-16 05:07:06] [SUCCESS] [FastPath] ALLOWED VID_1C4F&PID_0047 - Trusted HID vendor 
+(ClassGUID={745a17a0-74d3-11d0-b6fe-00a0c90f57da})
+[2026-04-16 05:07:06] [BLOCK] [FastPath] BLOCKING VID_2222&PID_0048 (USB\VID_2222&PID_0048\8&dbe4e25&0&1) before 
+driver install
+[2026-04-16 05:07:07] [BLOCK] [FastPath] BLOCKING VID_2222&PID_0048 (USB\VID_2222&PID_0048&MI_00\9&e4ea0e4&0&0000) 
+before driver install
+[2026-04-16 05:07:08] [BLOCK] [FastPath] BLOCKING VID_2222&PID_0048 (USB\VID_2222&PID_0048&MI_01\9&e4ea0e4&0&0001) 
+before driver install
+[2026-04-16 05:07:10] [SUCCESS] [FastPath] ALLOWED VID_413C&PID_301A - Trusted HID vendor 
+(ClassGUID={745a17a0-74d3-11d0-b6fe-00a0c90f57da})
+[2026-04-16 05:07:10] [SUCCESS] [FastPath] ALLOWED VID_8087&PID_0026 - Trusted HID vendor (class pending)
+[2026-04-16 05:07:11] [SUCCESS] [FastPath] ALLOWED VID_8087&PID_0033 - Trusted HID vendor (class pending)
+[2026-04-16 05:07:11] [BLOCK] [FastPath] BLOCKING VID_FFFF&PID_5678 (USB\VID_FFFF&PID_5678\9207126116702824126) before 
+driver install
+[2026-04-16 05:07:30] [BLOCK] BLOCKED USB Mass Storage Device - Not whitelisted
+[2026-04-16 05:09:20] [BLOCK] [FastPath] BLOCKING VID_0951&PID_1666 (USB\VID_0951&PID_1666\9822EF5943D0F6C119B713EB) 
+before driver install
+[2026-04-16 05:09:21] [BLOCK] [FastPath] BLOCKED VID_0951&PID_1666 (USB\VID_0951&PID_1666\9822EF5943D0F6C119B713EB) - 
+enforcement (fast-path)
+[2026-04-16 05:09:31] [BLOCK] BLOCKED USB Mass Storage Device - Not whitelisted
+[2026-04-16 05:09:37] [INFO] [WMI] Already blocked by fast-path: USB Mass Storage Device
+
+============================================================================
+  AutoLockdown v4.9.0 - SYSTEM VERIFICATION
+============================================================================
+
+  Timestamp: 2026-04-16 05:07:34
+  Computer: BRIDGEDEMO6
+
+============================================================================
+
+Deployment Files:
+[OK] Deployed Script - Exists (137.65 KB)
+True
+[OK] Deployment Metadata - Valid (0.17 KB)
+True
+[OK] Version Check - Deployed version matches (v4.9.0)
+True
+
+Configuration Files:
+[OK] USB Whitelist - Valid (0.21 KB)
+True
+[OK] Network Whitelist - Valid (0.15 KB)
+True
+[OK] Threat Database - Valid (1.64 KB)
+True
+[OK] Learning State - Valid (0.56 KB)
+True
+[OK] HID Vendors - Valid (1.22 KB)
+True
+[OK] System Backup - Valid (1.84 KB)
+True
+
+Runtime Components:
+[OK] Monitor Process - Running (PID 2740, uptime 0.02h)
+True
+[!] WMI Event Handler - Not registered
+False
+[OK] Fast-Path Watcher - Active (monitor v4.9.0 supports 250 ms pre-driver blocking)
+True
+[OK] Scheduled Task - State: Running (monitor active)
+True
+
+Security Status:
+[OK] Learning Mode - ENFORCED (learning complete)
+True
+[i] USB Whitelist - 4 devices whitelisted (low)
+True
+[OK] Network Whitelist - 0 adapters allowed
+True
+[OK] Threat Database - 16 threat signatures loaded
+True
+[i] Blocked USB Devices - 1 devices currently blocked
+True
+[OK] Infrastructure Devices - 1 infrastructure device(s) connected
+True
+[i] Container Allow Cache - Cache file not present
+True
+[OK] HID Vendors Content - 103 trusted HID vendors loaded
+True
+
+System Health:
+[OK] Security Log - Active (last entry 0.1 min ago, 0.11 MB)
+True
+[OK] Disk Space - 137.72 GB free (42% used)
+True
+[OK] System Integrity - Normal operation
+True
+[OK] Power Settings - Display/Sleep timeout: Never (LogMeIn compatible)
+True
+
+============================================================================
+  VERIFICATION SUMMARY
+============================================================================
+
+  Total Checks: 25
+  Passed: 21
+  Warnings: 1
+  Errors: 0
+
+  Pass Rate: 84%
+
+  Status: OPERATIONAL WITH WARNINGS
+  System is functional but some issues detected
+
+============================================================================
+
+----------------------------------------------------------------------------
+Verification by: Meet Gandhi (Product Security Engineer)
+System Integrity: A7F2E9C4B1D8F6E3
+----------------------------------------------------------------------------
+
+PS C:\Users\Leafadmin\Desktop\Autolockdown- v4.9.0>
+
+============================================================================
+  AutoLockdown v4.9.0 - SYSTEM VERIFICATION
+============================================================================
+
+  Timestamp: 2026-04-16 05:07:34
+  Computer: BRIDGEDEMO6
+
+============================================================================
+
+Deployment Files:
+[OK] Deployed Script - Exists (137.65 KB)
+True
+[OK] Deployment Metadata - Valid (0.17 KB)
+True
+[OK] Version Check - Deployed version matches (v4.9.0)
+True
+
+Configuration Files:
+[OK] USB Whitelist - Valid (0.21 KB)
+True
+[OK] Network Whitelist - Valid (0.15 KB)
+True
+[OK] Threat Database - Valid (1.64 KB)
+True
+[OK] Learning State - Valid (0.56 KB)
+True
+[OK] HID Vendors - Valid (1.22 KB)
+True
+[OK] System Backup - Valid (1.84 KB)
+True
+
+Runtime Components:
+[OK] Monitor Process - Running (PID 2740, uptime 0.02h)
+True
+[!] WMI Event Handler - Not registered
+False
+[OK] Fast-Path Watcher - Active (monitor v4.9.0 supports 250 ms pre-driver blocking)
+True
+[OK] Scheduled Task - State: Running (monitor active)
+True
+
+Security Status:
+[OK] Learning Mode - ENFORCED (learning complete)
+True
+[i] USB Whitelist - 4 devices whitelisted (low)
+True
+[OK] Network Whitelist - 0 adapters allowed
+True
+[OK] Threat Database - 16 threat signatures loaded
+True
+[i] Blocked USB Devices - 1 devices currently blocked
+True
+[OK] Infrastructure Devices - 1 infrastructure device(s) connected
+True
+[i] Container Allow Cache - Cache file not present
+True
+[OK] HID Vendors Content - 103 trusted HID vendors loaded
+True
+
+System Health:
+[OK] Security Log - Active (last entry 0.1 min ago, 0.11 MB)
+True
+[OK] Disk Space - 137.72 GB free (42% used)
+True
+[OK] System Integrity - Normal operation
+True
+[OK] Power Settings - Display/Sleep timeout: Never (LogMeIn compatible)
+True
+
+============================================================================
+  VERIFICATION SUMMARY
+============================================================================
+
+  Total Checks: 25
+  Passed: 21
+  Warnings: 1
+  Errors: 0
+
+  Pass Rate: 84%
+
+  Status: OPERATIONAL WITH WARNINGS
+  System is functional but some issues detected
+
+============================================================================
+
+----------------------------------------------------------------------------
+Verification by: Meet Gandhi (Product Security Engineer)
+System Integrity: A7F2E9C4B1D8F6E3
+----------------------------------------------------------------------------
+
+PS C:\Users\Leafadmin\Desktop\Autolockdown- v4.9.0>
+
+============================================================================
+  AutoLockdown v4.9.0 - SYSTEM VERIFICATION
+============================================================================
+
+  Timestamp: 2026-04-16 05:07:34
+  Computer: BRIDGEDEMO6
+
+============================================================================
+
+Deployment Files:
+[OK] Deployed Script - Exists (137.65 KB)
+True
+[OK] Deployment Metadata - Valid (0.17 KB)
+True
+[OK] Version Check - Deployed version matches (v4.9.0)
+True
+
+Configuration Files:
+[OK] USB Whitelist - Valid (0.21 KB)
+True
+[OK] Network Whitelist - Valid (0.15 KB)
+True
+[OK] Threat Database - Valid (1.64 KB)
+True
+[OK] Learning State - Valid (0.56 KB)
+True
+[OK] HID Vendors - Valid (1.22 KB)
+True
+[OK] System Backup - Valid (1.84 KB)
+True
+
+Runtime Components:
+[OK] Monitor Process - Running (PID 2740, uptime 0.02h)
+True
+[!] WMI Event Handler - Not registered
+False
+[OK] Fast-Path Watcher - Active (monitor v4.9.0 supports 250 ms pre-driver blocking)
+True
+[OK] Scheduled Task - State: Running (monitor active)
+True
+
+Security Status:
+[OK] Learning Mode - ENFORCED (learning complete)
+True
+[i] USB Whitelist - 4 devices whitelisted (low)
+True
+[OK] Network Whitelist - 0 adapters allowed
+True
+[OK] Threat Database - 16 threat signatures loaded
+True
+[i] Blocked USB Devices - 1 devices currently blocked
+True
+[OK] Infrastructure Devices - 1 infrastructure device(s) connected
+True
+[i] Container Allow Cache - Cache file not present
+True
+[OK] HID Vendors Content - 103 trusted HID vendors loaded
+True
+
+System Health:
+[OK] Security Log - Active (last entry 0.1 min ago, 0.11 MB)
+True
+[OK] Disk Space - 137.72 GB free (42% used)
+True
+[OK] System Integrity - Normal operation
+True
+[OK] Power Settings - Display/Sleep timeout: Never (LogMeIn compatible)
+True
+
+============================================================================
+  VERIFICATION SUMMARY
+============================================================================
+
+  Total Checks: 25
+  Passed: 21
+  Warnings: 1
+  Errors: 0
+
+  Pass Rate: 84%
+
+  Status: OPERATIONAL WITH WARNINGS
+  System is functional but some issues detected
+
+============================================================================
+
+----------------------------------------------------------------------------
+Verification by: Meet Gandhi (Product Security Engineer)
+System Integrity: A7F2E9C4B1D8F6E3
+----------------------------------------------------------------------------
+
+
+
+============================================================================
+  AutoLockdown v4.9.0 - SYSTEM VERIFICATION
+============================================================================
+
+  Timestamp: 2026-04-16 05:11:17
+  Computer: BRIDGEDEMO6
+
+============================================================================
+
+Deployment Files:
+[XX] Deployed Script - File not found
+False
+[XX] Deployment Metadata - File not found
+False
+False
+
+Configuration Files:
+[XX] USB Whitelist - File not found
+False
+[XX] Network Whitelist - File not found
+False
+[XX] Threat Database - File not found
+False
+[XX] Learning State - File not found
+False
+[XX] HID Vendors - File not found
+False
+[XX] System Backup - File not found
+False
+
+Runtime Components:
+[XX] Monitor Process - Not running (lockfile missing)
+False
+[!] WMI Event Handler - Not registered
+False
+[!] Fast-Path Watcher - Monitor not running  -  watcher inactive
+False
+[XX] Scheduled Task - Task not found or error
+False
+
+Security Status:
+[XX] Learning State - Learning state file missing
+False
+[XX] USB Whitelist - Whitelist file missing
+False
+[XX] Network Whitelist - Network whitelist missing
+False
+[XX] Threat Database - Threat DB missing
+False
+[i] Blocked USB Devices - 1 devices currently blocked
+True
+[OK] Infrastructure Devices - 1 infrastructure device(s) connected
+True
+[i] Container Allow Cache - Cache file not present
+True
+False
+
+System Health:
+[OK] Security Log - Active (last entry 1.7 min ago, 0.11 MB)
+True
+[OK] Disk Space - 137.71 GB free (42% used)
+True
+[!] System Integrity - Registry metadata missing
+True
+[XX] Power Settings - Display and Sleep timeouts not set to Never
+False
+
+============================================================================
+  VERIFICATION SUMMARY
+============================================================================
+
+  Total Checks: 23
+  Passed: 3
+  Warnings: 3
+  Errors: 15
+
+  Pass Rate: 13%
+
+  Status: CRITICAL ISSUES DETECTED
+  Immediate attention required
+
+============================================================================
+
+----------------------------------------------------------------------------
+Verification by: Meet Gandhi (Product Security Engineer)
+System Integrity: A7F2E9C4B1D8F6E3
+----------------------------------------------------------------------------
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
