@@ -1,17 +1,22 @@
 <#
 .SYNOPSIS
-    Reset_Lockdown.ps1 v4.9.0 - AutoLockdown System Reset & Cleanup
+    Reset_Lockdown.ps1 v4.9.1 - AutoLockdown System Reset & Cleanup
 .DESCRIPTION
     Safely removes all AutoLockdown components and restores the system
     to its pre-deployment state. Creates backup before removal.
     
 .NOTES
     File Name : Reset_Lockdown.ps1
-    Version   : 4.9.0
+    Version   : 4.9.1
     Author    : Meet Gandhi (Product Security Engineer)
     Created   : April 2026
     Requires  : PowerShell 5.1+, Administrator privileges
     
+    Changelog v4.9.1:
+    - Fixed USB restore timing behavior: reset now performs multi-pass USB re-enable
+      retries so dependent/composite devices are restored in one reset run.
+    - Version bump to match AutoLockdown v4.9.1.
+
     Changelog v4.9.0:
     - Version bump to match AutoLockdown v4.9.0.
     
@@ -40,7 +45,7 @@ param(
     [switch]$Interactive
 )
 
-$ScriptVersion = "4.9.0"
+$ScriptVersion = "4.9.1"
 $ProductName = "AutoLockdown"
 
 # Load assemblies for GUI
@@ -252,20 +257,39 @@ function Restore-USBDevices {
     Write-ResetLog "Restoring USB devices..." "INFO"
     
     try {
-        $blocked = Get-PnpDevice -ErrorAction SilentlyContinue | Where-Object { 
-            $_.Status -eq "Error" -and $_.InstanceId -match "^USB\\" 
-        }
-        $restored = 0
-        
-        foreach ($dev in $blocked) {
-            if ($PSCmdlet.ShouldProcess($dev.FriendlyName, "Enable")) {
-                Enable-PnpDevice -InstanceId $dev.InstanceId -Confirm:$false -ErrorAction SilentlyContinue
-                $restored++
+        $statusesToRestore = @("Error", "Degraded", "Unknown")
+        $maxPasses = 5
+        $restoredIds = @{}
+
+        for ($pass = 1; $pass -le $maxPasses; $pass++) {
+            $blocked = Get-PnpDevice -ErrorAction SilentlyContinue | Where-Object {
+                $_.InstanceId -match "^USB\\" -and $_.Status -in $statusesToRestore
             }
+
+            if (-not $blocked -or $blocked.Count -eq 0) { break }
+
+            foreach ($dev in $blocked) {
+                $deviceLabel = if ($dev.FriendlyName) { $dev.FriendlyName } else { $dev.InstanceId }
+                if ($PSCmdlet.ShouldProcess($deviceLabel, "Enable")) {
+                    Enable-PnpDevice -InstanceId $dev.InstanceId -Confirm:$false -ErrorAction SilentlyContinue
+                    $restoredIds[$dev.InstanceId] = $true
+                }
+            }
+
+            # Composite/parent-child USB stacks can require additional passes.
+            Start-Sleep -Milliseconds 500
         }
         
-        if ($restored -gt 0) {
-            Write-Step "Restore USB devices" "OK" "$restored device(s) enabled"
+        $remaining = Get-PnpDevice -ErrorAction SilentlyContinue | Where-Object {
+            $_.InstanceId -match "^USB\\" -and $_.Status -in $statusesToRestore
+        }
+
+        $restored = $restoredIds.Keys.Count
+        if ($restored -gt 0 -and $remaining.Count -eq 0) {
+            Write-Step "Restore USB devices" "OK" "$restored device(s) enabled (multi-pass recovery complete)"
+        }
+        elseif ($restored -gt 0) {
+            Write-Step "Restore USB devices" "WARN" "$restored device(s) enabled, $($remaining.Count) still not healthy after $maxPasses pass(es)"
         }
         else {
             Write-Step "Restore USB devices" "SKIP" "None blocked"
