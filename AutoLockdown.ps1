@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    AutoLockdown v4.9.1 - Enterprise USB Security Hardening Suite
+    AutoLockdown v4.9.2 - Enterprise USB Security Hardening Suite
 .DESCRIPTION
     Production-grade USB security enforcement with intelligent learning mode,
     threat detection, and comprehensive monitoring capabilities.
@@ -13,11 +13,16 @@
     
 .NOTES
     File Name : AutoLockdown.ps1
-    Version   : 4.9.1
+    Version   : 4.9.2
     Author    : Meet Gandhi (Product Security Engineer)
     Created   : April 2026
     Requires  : PowerShell 5.1+, Administrator privileges
     
+    Changelog v4.9.2:
+    - Fixed silent WMI handler crashes by wrapping ConvertFrom-Json calls in try/catch safely.
+    - Fixed WMI event deduplication missing block check for `Degraded` device states.
+    - Enforced .bak1 staging for Out-File writes across USB Whitelist operations inside WMI handler.
+
     Changelog v4.9.1:
     - Version bump to v4.9.1.
     - Companion fixes shipped in Verify/Reset scripts:
@@ -161,7 +166,7 @@ if (-not $Monitor) {
 # Encryption Scope (LocalMachine allows authorized admins/SYSTEM to decrypt)
 $DPAPI_SCOPE = [System.Security.Cryptography.DataProtectionScope]::LocalMachine
 
-$ScriptVersion = "4.9.1"
+$ScriptVersion = "4.9.2"
 $ProductName = "AutoLockdown"
 
 
@@ -2061,7 +2066,7 @@ function Start-RealtimeMonitoring {
             
             # Fast-path dedup: if the registry watcher already disabled this device,
             # skip all further processing to avoid redundant log entries.
-            if ($fullDev.Status -eq "Error") {
+            if ($fullDev.Status -eq "Error" -or $fullDev.Status -eq "Degraded") {
                 Add-Content -Path $data.LogPath -Value "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] [INFO] [WMI] Already blocked by fast-path: $($fullDev.FriendlyName)" -Force
                 return
             }
@@ -2092,8 +2097,8 @@ function Start-RealtimeMonitoring {
                 }
                 catch { $whitelist = @() }
             }
-            $threats = @{}; if (Test-Path $data.ThreatDBPath) { $thrData = Get-Content $data.ThreatDBPath -Raw | ConvertFrom-Json; $threats = $thrData.Threats }
-            $hidVendors = @(); if (Test-Path $data.HIDVendorsPath) { $hidD = Get-Content $data.HIDVendorsPath -Raw | ConvertFrom-Json; $hidVendors = $hidD.Vendors }
+            $threats = @{}; try { if (Test-Path $data.ThreatDBPath) { $thrData = Get-Content $data.ThreatDBPath -Raw | ConvertFrom-Json; $threats = $thrData.Threats } } catch {}
+            $hidVendors = @(); try { if (Test-Path $data.HIDVendorsPath) { $hidD = Get-Content $data.HIDVendorsPath -Raw | ConvertFrom-Json; $hidVendors = $hidD.Vendors } } catch {}
             
             $class = $fullDev.Class
             # Untrusted HID devices (potential BadUSB) intentionally fall through to whitelist/block logic below
@@ -2242,6 +2247,10 @@ function Start-RealtimeMonitoring {
                             $existingCreated = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
                             try { if (Test-Path $data.USBWhitelistPath) { $wlRaw = Get-Content $data.USBWhitelistPath -Raw -Encoding UTF8; if ($wlRaw.Trim().StartsWith("{")) { $existingCreated = ($wlRaw | ConvertFrom-Json).Created } } } catch {}
                             $wlData = @{ Created = $existingCreated; Version = $data.ScriptVersion; Author = $data.ScriptAuthor; Devices = $whitelist }
+                            if (Test-Path $data.USBWhitelistPath) {
+                                if (Test-Path "$($data.USBWhitelistPath).bak1") { Copy-Item "$($data.USBWhitelistPath).bak1" "$($data.USBWhitelistPath).bak2" -Force -ErrorAction SilentlyContinue }
+                                Copy-Item $data.USBWhitelistPath "$($data.USBWhitelistPath).bak1" -Force -ErrorAction SilentlyContinue
+                            }
                             $wlData | ConvertTo-Json -Depth 3 | Out-File $data.USBWhitelistPath -Force -Encoding UTF8
                             Add-Content -Path $data.LogPath -Value "[$ts] [LEARNED] LEARNED $($fullDev.FriendlyName) - $vidpid" -Force
                         }
