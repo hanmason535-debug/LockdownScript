@@ -1,17 +1,18 @@
 <#
 .SYNOPSIS
-    Reset_Lockdown.ps1 v4.9.1 - AutoLockdown System Reset & Cleanup
+    Reset_Lockdown.ps1 v4.9.2 - AutoLockdown System Reset & Cleanup
 .DESCRIPTION
     Safely removes all AutoLockdown components and restores the system
     to its pre-deployment state. Creates backup before removal.
     
 .NOTES
     File Name : Reset_Lockdown.ps1
-    Version   : 4.9.1
+    Version   : 4.9.2
     Author    : Meet Gandhi (Product Security Engineer)
     Created   : April 2026
     Requires  : PowerShell 5.1+, Administrator privileges
-    
+    Changelog v4.9.2:
+    - Version bump to match AutoLockdown v4.9.2.    
     Changelog v4.9.1:
     - Fixed USB restore timing behavior: reset now performs multi-pass USB re-enable
       retries so dependent/composite devices are restored in one reset run.
