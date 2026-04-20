@@ -1,19 +1,19 @@
-<#
+﻿<#
 .SYNOPSIS
-    Verify_Lockdown.ps1 v4.9.2 - AutoLockdown Health Check & Validation
+    Verify_Lockdown.ps1 v4.9.3 - AutoLockdown Health Check & Validation
 .DESCRIPTION
     Comprehensive verification tool that validates AutoLockdown deployment,
     monitors system health, and provides detailed status reports.
     
 .NOTES
     File Name : Verify_Lockdown.ps1
-    Version   : 4.9.2
+    Version   : 4.9.3
     Author    : Meet Gandhi (Product Security Engineer)
     Created   : April 2026
     Requires  : PowerShell 5.1+, Administrator privileges
     
-    Changelog v4.9.2:
-    - Version bump to match AutoLockdown v4.9.2.
+    Changelog v4.9.3:
+    - Version bump to match AutoLockdown v4.9.3.
     
     Changelog v4.9.1:
     - Fixed false WMI verification warnings: Verify now validates monitor-backed WMI
@@ -54,7 +54,7 @@ param(
     [string]$OutputPath = "C:\Reports"
 )
 
-$ScriptVersion = "4.9.2"
+$ScriptVersion = "4.9.3"
 $ProductName = "AutoLockdown"
 
 # Load assemblies
@@ -1134,3 +1134,4 @@ elseif ($script:Warnings -gt 0) {
 else {
     exit 0
 }
+

@@ -1,10 +1,10 @@
-# AutoLockdown v4.9.2 Patch Checklist
+﻿# AutoLockdown v4.9.3 Patch Checklist
 
-This file documents code and documentation updates applied in v4.9.2 and defines concise, command-based validation patterns for field verification.
+This file documents code and documentation updates applied in v4.9.3 and defines concise, command-based validation patterns for field verification.
 
 ---
 
-## 1. Version Bump: 4.9.1 -> 4.9.2
+## 1. Version Bump: 4.9.1 -> 4.9.3
 
 ### Search Patterns
 
@@ -15,7 +15,7 @@ Select-String -Path *.ps1, *.md -Pattern "4\.9\.2"
 
 ### Expected Results
 
-- `4.9.2` appears in:
+- `4.9.3` appears in:
   - `AutoLockdown.ps1` (`.SYNOPSIS`, `.NOTES Version`, `$ScriptVersion`)
   - `Verify_Lockdown.ps1` (`.SYNOPSIS`, `.NOTES Version`, `$ScriptVersion`)
   - `Reset_Lockdown.ps1` (`.SYNOPSIS`, `.NOTES Version`, `$ScriptVersion`)
@@ -85,9 +85,9 @@ Select-String -Path Reset_Lockdown.ps1 -Pattern "maxPasses|statusesToRestore|mul
 
 | Check | Command | Expected |
 |------|---------|----------|
-| AutoLockdown version | `Select-String AutoLockdown.ps1 '\$ScriptVersion'` | `4.9.2` |
-| Verify version | `Select-String Verify_Lockdown.ps1 '\$ScriptVersion'` | `4.9.2` |
-| Reset version | `Select-String Reset_Lockdown.ps1 '\$ScriptVersion'` | `4.9.2` |
+| AutoLockdown version | `Select-String AutoLockdown.ps1 '\$ScriptVersion'` | `4.9.3` |
+| Verify version | `Select-String Verify_Lockdown.ps1 '\$ScriptVersion'` | `4.9.3` |
+| Reset version | `Select-String Reset_Lockdown.ps1 '\$ScriptVersion'` | `4.9.3` |
 | Verify WMI logic | `Select-String Verify_Lockdown.ps1 'process-local|Recent WMI evidence'` | New monitor-backed logic present |
 | Reset multi-pass logic | `Select-String Reset_Lockdown.ps1 'maxPasses|statusesToRestore'` | Multi-pass USB restore present |
 | WMI JSON Try Catch | `Select-String AutoLockdown.ps1 'try .* ConvertFrom-Json'` | Wrapped correctly |
@@ -97,7 +97,7 @@ Select-String -Path Reset_Lockdown.ps1 -Pattern "maxPasses|statusesToRestore|mul
 
 ## 5. Rollback Notes
 
-### Version Rollback (4.9.2 -> 4.9.1)
+### Version Rollback (4.9.3 -> 4.9.1)
 
 ```powershell
 (Get-Content AutoLockdown.ps1) |
@@ -120,3 +120,4 @@ Select-String -Path Reset_Lockdown.ps1 -Pattern "maxPasses|statusesToRestore|mul
     ForEach-Object { $_ -replace '\*\*Version Reference:\*\* v4\.9\.2', '**Version Reference:** v4.9.1' } |
     Set-Content AutoLockdown_Context.md
 ```
+

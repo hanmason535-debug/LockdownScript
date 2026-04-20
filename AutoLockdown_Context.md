@@ -1,5 +1,5 @@
-# AutoLockdown Project Context
-**Version Reference:** v4.9.2
+﻿# AutoLockdown Project Context
+**Version Reference:** v4.9.3
 **Repository:** hanmason535-debug/LockdownScript
 
 ## Overview
@@ -40,30 +40,30 @@ Once deployed, AutoLockdown builds its environment primarily within `C:\ProgramD
 - **`EMERGENCY_BYPASS`:** A file trigger that grants a temporary 30-minute bypass for critical physical interventions.
 
 ## HID Allow Logic (USB-A and USB-C)
-Allow/deny decisions are based entirely on **device class, ClassGUID, and vendor identity** — not on the physical connector type (USB-A vs USB-C). Both connector types use identical policy evaluation paths:
+Allow/deny decisions are based entirely on **device class, ClassGUID, and vendor identity** â€” not on the physical connector type (USB-A vs USB-C). Both connector types use identical policy evaluation paths:
 
 ### Normal Monitoring Path (`Protect-USBDevice`)
-1. Check emergency bypass → allow all.
-2. Check device Class (`Keyboard`, `Mouse`, `HIDClass`) **and** `Test-TrustedHIDVendor` → allow.
-3. Check always-allowed infrastructure (FTDI, JAC) → allow (and seed JAC ContainerId).
-4. Check ContainerId against persistent cache (`ContainerAllowCache.json`) → allow.
-5. Check USB whitelist → allow if present.
-5. Check threat database → block if matched.
-6. Learning mode → add to whitelist and allow; Enforcement mode → block.
+1. Check emergency bypass â†’ allow all.
+2. Check device Class (`Keyboard`, `Mouse`, `HIDClass`) **and** `Test-TrustedHIDVendor` â†’ allow.
+3. Check always-allowed infrastructure (FTDI, JAC) â†’ allow (and seed JAC ContainerId).
+4. Check ContainerId against persistent cache (`ContainerAllowCache.json`) â†’ allow.
+5. Check USB whitelist â†’ allow if present.
+5. Check threat database â†’ block if matched.
+6. Learning mode â†’ add to whitelist and allow; Enforcement mode â†’ block.
 
 ### Fast-Path Registry Watcher Path (250 ms polling)
-1. Check emergency bypass → allow.
-2. Check always-allowed infrastructure vendors → allow.
+1. Check emergency bypass â†’ allow.
+2. Check always-allowed infrastructure vendors â†’ allow.
 3. Check `Class` registry value (written early by Windows):
-   - If Class is a known HID class name **and** vendor is trusted → allow.
+   - If Class is a known HID class name **and** vendor is trusted â†’ allow.
 4. Check `ClassGUID` registry value (written slightly before Class string):
-   - If ClassGUID matches `{4D36E96B}` (keyboard), `{4D36E96F}` (mouse), or `{745A17A0}` (HID) **and** vendor is trusted → allow.
+   - If ClassGUID matches `{4D36E96B}` (keyboard), `{4D36E96F}` (mouse), or `{745A17A0}` (HID) **and** vendor is trusted â†’ allow.
 5. **Defer if class not yet written:** If vendor is trusted HID but neither `Class` nor `ClassGUID` exists yet (device still enumerating), re-queue for next poll instead of blocking. This prevents transient blocking of legitimate keyboards/mice before the OS writes their class. Non-HID devices (e.g., iPhones with `VID_05AC`, class `Image`/`WPD`) will have their class written within one or two polls and will correctly fall through to the block path.
-6. If class is present but non-HID → fall through to whitelist/block decision.
-7. Check ContainerId against persistent cache (`ContainerAllowCache.json`) → allow.
-8. Check learning mode → allow.
-9. Check whitelist → allow.
-10. Enforcement mode → block immediately (pre-driver).
+6. If class is present but non-HID â†’ fall through to whitelist/block decision.
+7. Check ContainerId against persistent cache (`ContainerAllowCache.json`) â†’ allow.
+8. Check learning mode â†’ allow.
+9. Check whitelist â†’ allow.
+10. Enforcement mode â†’ block immediately (pre-driver).
 
 ### Key Invariants
 - A device connected via USB-C through a hub or dock is enumerated identically to USB-A; Windows assigns the same class/GUID regardless of physical connector.
@@ -75,3 +75,4 @@ Allow/deny decisions are based entirely on **device class, ClassGUID, and vendor
 2. **Initialization:** Run `.\AutoLockdown.ps1 -Initialize` in elevated PowerShell.
 3. **Validation:** Run `.\Verify_Lockdown.ps1` and confirm zero errors.
 4. **Enforcement:** Leave the site. After 3 hours, the system seamlessly locks out any future untrusted modifications.
+
