@@ -1,6 +1,6 @@
-﻿<#
+<#
 .SYNOPSIS
-    AutoLockdown v4.9.3 - Enterprise USB Security Hardening Suite
+    AutoLockdown v4.9.4 - Enterprise USB Security Hardening Suite
 .DESCRIPTION
     Production-grade USB security enforcement with intelligent learning mode,
     threat detection, and comprehensive monitoring capabilities.
@@ -13,11 +13,22 @@
     
 .NOTES
     File Name : AutoLockdown.ps1
-    Version   : 4.9.3
+    Version   : 4.9.4
     Author    : Meet Gandhi (Product Security Engineer)
     Created   : April 2026
     Requires  : PowerShell 5.1+, Administrator privileges
     
+    Changelog v4.9.4:
+    - Fixed 30-second USB blocking delay after reboot.  The fast-path registry
+      watcher and WMI handler now start BEFORE the startup device scan so that
+      any device plugged in during the scan is caught in 250 ms instead of
+      falling through to the slower WMI path (10-30 s).
+    - Eliminated duplicate Get-PnpDevice query at monitor startup by sharing a
+      single device snapshot between the watcher pre-population and the scan.
+    - Reduced per-device overhead during startup scan by caching the learning
+      mode state for the duration of the scan.
+    - Added AtLogOn trigger as backup to the AtStartup scheduled task trigger.
+
     Changelog v4.9.3:
     - Fixed Fast-Path watcher failing to block instantly. Devnodes that take >500ms
       to instantiate are now correctly re-queued in the Fast-Path listener instead 
@@ -173,7 +184,7 @@ if (-not $Monitor) {
 # Encryption Scope (LocalMachine allows authorized admins/SYSTEM to decrypt)
 $DPAPI_SCOPE = [System.Security.Cryptography.DataProtectionScope]::LocalMachine
 
-$ScriptVersion = "4.9.3"
+$ScriptVersion = "4.9.4"
 $ProductName = "AutoLockdown"
 
 
@@ -1663,13 +1674,18 @@ function Start-RegistryWatcher {
 
             # Pre-populate with devices already present so the watcher does not
             # re-evaluate (and potentially double-block) devices connected before
-            # the monitor started.
-            try {
-                $existing = Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue |
-                Where-Object { $_.InstanceId -match '^USB\\' }
-                foreach ($dev in $existing) { [void]$knownInstanceIds.Add($dev.InstanceId) }
+            # the monitor started.  When InitialDeviceIds is supplied by the
+            # caller, reuse that snapshot to skip a second slow Get-PnpDevice call.
+            if ($InitialDeviceIds -and $InitialDeviceIds.Count -gt 0) {
+                foreach ($id in $InitialDeviceIds) { [void]$knownInstanceIds.Add($id) }
+            } else {
+                try {
+                    $existing = Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue |
+                    Where-Object { $_.InstanceId -match '^USB\\' }
+                    foreach ($dev in $existing) { [void]$knownInstanceIds.Add($dev.InstanceId) }
+                }
+                catch {}
             }
-            catch {}
 
             function Write-WatcherLog {
                 param([string]$Message, [string]$Level = "INFO")
@@ -2036,12 +2052,16 @@ function Start-RealtimeMonitoring {
     $learningMode = Update-LearningMode -Silent
     Write-LogMessage "Mode: $learningMode | Whitelist: $($script:Whitelist.Count)" -Level "INFO"
     
-    Write-LogMessage "Startup device scan..." -Level "INFO"
+    # Snapshot current USB devices ONCE.  This list is shared with the watcher
+    # (to pre-populate its known set) and the startup scan (to block unauthorized
+    # boot-present devices), eliminating a duplicate slow Get-PnpDevice call.
     $devs = Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue | Where-Object { $_.InstanceId -match '^USB\\' }
-    foreach ($d in $devs) { Protect-USBDevice -Device $d -IsStartup $true }
+    $initialDeviceIds = @($devs | ForEach-Object { $_.InstanceId })
     
-    # Start the fast-path registry watcher.  It polls HKLM:\...\Enum\USB every
-    # 250 ms and blocks unknown devices before any driver can bind.
+    # Start the fast-path registry watcher FIRST so it is actively blocking new
+    # devices (250 ms polling) while the slower startup scan runs on the main
+    # thread.  Previously the watcher started AFTER the scan, leaving a 10-20 s
+    # window where no fast-path protection existed for newly-plugged devices.
     Write-LogMessage "Starting fast-path registry watcher (250 ms)..." -Level "INFO"
     $watcherConfig = @{
         LogPath                 = $LogFile
@@ -2053,6 +2073,7 @@ function Start-RealtimeMonitoring {
         ContainerAllowCachePath = $ContainerAllowCacheFile
         ContainerAllowTTLHours  = $CONTAINER_ALLOW_TTL_HOURS
         ContainerGuidPattern    = $CONTAINER_ID_GUID_PATTERN
+        InitialDeviceIds        = $initialDeviceIds
     }
     $script:RegWatcher = Start-RegistryWatcher -Config $watcherConfig
     Write-LogMessage "Fast-path registry watcher started" -Level "SUCCESS"
@@ -2281,6 +2302,13 @@ function Start-RealtimeMonitoring {
     
     Write-LogMessage "WMI event subscription registered" -Level "SUCCESS"
     
+    # Startup scan runs AFTER both the watcher and WMI handler are active.  Any
+    # device plugged in DURING this scan is caught in real-time by the watcher
+    # (250 ms).  The scan handles devices present at boot that the watcher
+    # pre-populated as "known" (and therefore skipped).
+    Write-LogMessage "Startup device scan..." -Level "INFO"
+    foreach ($d in $devs) { Protect-USBDevice -Device $d -IsStartup $true -StartupLearningMode $learningMode }
+    
     try {
         while ($true) {
             Start-Sleep -Seconds 60
@@ -2313,7 +2341,7 @@ function Start-RealtimeMonitoring {
 }
 
 function Protect-USBDevice {
-    param($Device, [bool]$IsStartup = $false)
+    param($Device, [bool]$IsStartup = $false, [string]$StartupLearningMode = "")
     # Emergency bypass allows all devices for 30 min
     if (Test-EmergencyBypass) { Write-LogMessage "ALLOWED $($Device.FriendlyName) - Emergency bypass" -Level "WARNING"; return }
     $idUpper = $Device.InstanceId.ToUpper()
@@ -2421,7 +2449,7 @@ function Protect-USBDevice {
     $threatInfo = $null
     if ($vidpid) { if ($script:ThreatMap -is [hashtable]) { if ($script:ThreatMap.ContainsKey($vidpid)) { $threatInfo = $script:ThreatMap[$vidpid] } } else { $prop = $script:ThreatMap.PSObject.Properties.Match($vidpid); if ($prop.Count -gt 0) { $threatInfo = $prop[0].Value } } }
     if ($threatInfo) { Deny-Device -Device $Device -Reason "Threat: $($threatInfo.Name)"; return }
-    $learningMode = Update-LearningMode -Silent
+    $learningMode = if ($StartupLearningMode) { $StartupLearningMode } else { Update-LearningMode -Silent }
     if ($learningMode -eq "Learning") {
         if ($vidpid) { if (Add-ToWhitelist -VidPid $vidpid -DeviceName $Device.FriendlyName) { $script:Metrics.TotalLearned++ }; $data = Import-JsonSafe -Path $USBWhitelist; $script:Whitelist = if ($data) { $data.Devices } else { @() }; Write-LogMessage "ALLOWED $($Device.FriendlyName) - Learning" -Level "SUCCESS"; $script:Metrics.TotalAllowed++ }
     }
@@ -2440,7 +2468,9 @@ function Register-StartupTask {
         $existingTask = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
         if ($existingTask) { Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue }
         $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$DeployedScript`" -Monitor"
-        $trigger = New-ScheduledTaskTrigger -AtStartup
+        $triggerStartup = New-ScheduledTaskTrigger -AtStartup
+        $triggerLogon = New-ScheduledTaskTrigger -AtLogOn
+        $trigger = @($triggerStartup, $triggerLogon)
         $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
         $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
         if ($PSCmdlet.ShouldProcess($taskName, "Register")) {

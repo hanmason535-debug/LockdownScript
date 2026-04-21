@@ -1,6 +1,45 @@
-﻿# AutoLockdown v4.9.3 Patch Checklist
+# AutoLockdown v4.9.4 Patch Checklist
 
-This file documents code and documentation updates applied in v4.9.3 and defines concise, command-based validation patterns for field verification.
+This file documents code and documentation updates applied in v4.9.4 and prior versions, and defines concise, command-based validation patterns for field verification.
+
+---
+
+## 0. v4.9.4: Startup Sequence Reorder (USB Blocking Latency Fix)
+
+### Problem
+
+After a clean install (Initialize -> Finish Early -> Reboot), plugging in an unauthorized USB device took ~30 seconds before it was blocked. The fast-path registry watcher started AFTER the slow startup device scan, leaving a 10-20s window with zero fast-path protection.
+
+### Search Patterns
+
+```powershell
+# Verify watcher starts BEFORE startup scan
+Select-String -Path AutoLockdown.ps1 -Pattern "Start-RegistryWatcher|Startup device scan"
+# Verify InitialDeviceIds is passed to watcher
+Select-String -Path AutoLockdown.ps1 -Pattern "InitialDeviceIds"
+# Verify StartupLearningMode caching
+Select-String -Path AutoLockdown.ps1 -Pattern "StartupLearningMode"
+# Verify dual triggers
+Select-String -Path AutoLockdown.ps1 -Pattern "triggerStartup|triggerLogon"
+```
+
+### Expected Behavior
+
+- In `Start-RealtimeMonitoring`, the log line `"Starting fast-path registry watcher"` MUST appear BEFORE `"Startup device scan"`.
+- `$watcherConfig` hashtable includes `InitialDeviceIds` key.
+- `Protect-USBDevice` accepts `[string]$StartupLearningMode` parameter. Startup scan passes `$learningMode` to skip per-device `Update-LearningMode` calls.
+- `Register-StartupTask` creates both `AtStartup` and `AtLogOn` triggers.
+
+### v4.9.4 Acceptance Matrix
+
+| Check | Command | Expected |
+|------|---------|----------|
+| AutoLockdown version | `Select-String AutoLockdown.ps1 '\$ScriptVersion'` | `4.9.4` |
+| Verify version | `Select-String Verify_Lockdown.ps1 '\$ScriptVersion'` | `4.9.4` |
+| Watcher before scan | `Select-String AutoLockdown.ps1 'Fast-path registry watcher started\|Startup device scan'` | Watcher line appears first |
+| InitialDeviceIds | `Select-String AutoLockdown.ps1 'InitialDeviceIds'` | Present in watcherConfig + watcher script |
+| Learning mode cache | `Select-String AutoLockdown.ps1 'StartupLearningMode'` | Present in param + startup scan call |
+| Dual triggers | `Select-String AutoLockdown.ps1 'triggerLogon'` | `AtLogOn` trigger present |
 
 ---
 
